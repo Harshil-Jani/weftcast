@@ -65,9 +65,21 @@
       "icons/icon.icns",
       "icons/icon.png"
     ],
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe",
+      "binaries/cloudflared",
+      "binaries/yt-dlp",
+      "binaries/cli"
+    ],
+    "resources": {
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
     "macOS": {
       "minimumSystemVersion": "12.3",
-      "entitlements": null
+      "entitlements": "Entitlements.plist",
+      "hardenedRuntime": true,
+      "signingIdentity": "-"
     }
   }
 }

@@ -7,11 +7,13 @@ mod commands;
 pub mod cuts;
 pub mod edits;
 pub mod export;
+pub mod importer;
 pub mod library;
 pub mod media;
 pub mod server;
 pub mod share;
 pub mod shorter;
+pub mod shorts;
 pub mod sidecars;
 pub mod transcribe;
 pub mod voice;
@@ -179,6 +181,15 @@ pub fn run() {
             commands::forget_api_key,
             commands::install_model_file,
             commands::update_youtube_importer,
+            commands::import_file,
+            commands::import_youtube,
+            commands::get_shorts,
+            commands::suggest_shorts,
+            commands::reroll_short,
+            commands::update_short,
+            commands::nudge_short,
+            commands::render_shorts,
+            commands::reveal_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

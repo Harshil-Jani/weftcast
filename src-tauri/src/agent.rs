@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::brand::BRAND;
 use crate::library;
-use crate::{edits, export, server, share, voice};
+use crate::{edits, export, server, share, shorts, voice};
 
 pub struct Agent {
     tunnel: share::Tunnel,
@@ -56,6 +56,16 @@ pub fn tools() -> Vec<(&'static str, String, Value)> {
         ("undo_edit", "Undo the last applied edit plan.".into(), with(json!({}), &["video_id"])),
         ("render", "Re-render the shareable file from the current voice settings.".into(), with(json!({}), &["video_id"])),
         ("export", "Export to Downloads. kind: mp4, captioned, srt or vtt.".into(), with(json!({"kind": {"type": "string", "enum": ["mp4", "captioned", "srt", "vtt"]}}), &["video_id", "kind"])),
+        (
+            "suggest_shorts",
+            "Ask Claude for vertical short clips from a transcribed video. count 1-20, min and max seconds. Returns clips with ids, times, hook titles, reasons and virality scores. Nothing renders until render_shorts.".into(),
+            with(json!({"count": {"type": "integer"}, "min": {"type": "number"}, "max": {"type": "number"}}), &["video_id"]),
+        ),
+        (
+            "render_shorts",
+            "Render clips from suggest_shorts as 1080x1920 MP4s with burned-in captions. framing: blur_fit, center or split.".into(),
+            with(json!({"clip_ids": {"type": "array", "items": {"type": "string"}}, "framing": {"type": "string", "enum": ["blur_fit", "center", "split"]}}), &["video_id", "clip_ids"]),
+        ),
         (
             "create_share_link",
             "Make a public link to the video (works while this process runs). Requires confirm: true.".into(),
@@ -122,6 +132,40 @@ impl Agent {
                 let (path, note) =
                     export::run(arg_str(a, "video_id")?, arg_str(a, "kind")?).await?;
                 Ok(json!({"file": path, "note": note}))
+            }
+            "suggest_shorts" => {
+                let id = arg_str(a, "video_id")?;
+                let v = library::load(id)?;
+                let t = library::load_transcript(id)
+                    .context("no transcript yet; transcribe it in the app")?;
+                let d = shorts::Limits::default();
+                let limits = shorts::Limits {
+                    count: a["count"].as_u64().map(|n| n as usize).unwrap_or(d.count),
+                    min: a["min"].as_f64().unwrap_or(d.min),
+                    max: a["max"].as_f64().unwrap_or(d.max),
+                    allow_overlap: false,
+                };
+                let (clips, rejected) = shorts::suggest(&v, &t, &limits, &[]).await?;
+                shorts::save(
+                    id,
+                    &shorts::ShortsFile {
+                        limits: Some(limits),
+                        clips: clips.clone(),
+                        rendered: vec![],
+                    },
+                )?;
+                Ok(json!({"clips": clips, "rejected": rejected}))
+            }
+            "render_shorts" => {
+                let id = arg_str(a, "video_id")?;
+                let v = library::load(id)?;
+                let ids: Vec<String> = serde_json::from_value(a["clip_ids"].clone())
+                    .context("clip_ids must be a list of ids")?;
+                let framing: shorts::Framing =
+                    serde_json::from_value(a.get("framing").cloned().unwrap_or(json!("blur_fit")))
+                        .context("framing must be blur_fit, center or split")?;
+                let (files, note) = shorts::render(&v, &ids, framing).await?;
+                Ok(json!({"files": files, "note": note}))
             }
             "create_share_link" => {
                 confirmed(a, "Sharing publicly")?;

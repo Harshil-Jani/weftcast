@@ -53,6 +53,12 @@ pub struct Video {
     /// Extra caption languages (ISO codes) saved as captions.<lang>.vtt.
     #[serde(default)]
     pub caption_langs: Vec<String>,
+    /// Where an imported video came from (for example a YouTube link the owner has rights to).
+    #[serde(default)]
+    pub source_url: Option<String>,
+    /// The camera bubble as fractions of the frame (x, y, w, h), when it was on while recording.
+    #[serde(default)]
+    pub bubble: Option<(f64, f64, f64, f64)>,
 }
 
 pub fn root() -> PathBuf {

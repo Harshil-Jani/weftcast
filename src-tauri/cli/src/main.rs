@@ -4,8 +4,10 @@
 //!   cli plan ID "remove the first 5 seconds"   ask Claude for an edit plan and print it
 //!   cli apply ID plan.json [--preview]         validate and apply (or only describe) a plan
 //!   cli undo ID | export ID KIND | share ID --yes | delete ID --yes
+//!   cli record SECONDS | import FILE_OR_YOUTUBE_URL | transcribe ID
+//!   cli shorts ID [COUNT MIN MAX] | render-shorts ID FRAMING CLIP_ID...
 use app_lib::agent::{Agent, handle_mcp};
-use app_lib::{edits, library};
+use app_lib::{capture, edits, importer, library, transcribe};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -53,6 +55,45 @@ async fn run(args: &[String]) -> anyhow::Result<()> {
                 .await?
         }
         "undo" => agent.call("undo_edit", &json!({"video_id": a(1)})).await?,
+        "record" => {
+            let secs: u64 = a(1).parse().unwrap_or(10);
+            let devs = capture::devices().await?;
+            let rec = capture::Capture::default();
+            let screen = devs.screens.first().map(|d| d.index.clone()).ok_or_else(|| anyhow::anyhow!("no screen to record"))?;
+            rec.start(capture::StartOptions { screen, mic: devs.mics.first().map(|m| m.index.clone()) }).await?;
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            let v = rec.stop().await?;
+            json!({"video_id": v.id, "duration": v.duration})
+        }
+        "import" => {
+            let src = a(1);
+            let v = if importer::is_youtube(&src) {
+                importer::youtube(&src, |p| eprint!("\rdownloading {p}%   ")).await?
+            } else {
+                importer::file(std::path::Path::new(&src)).await?
+            };
+            json!({"video_id": v.id, "title": v.title, "duration": v.duration, "source_url": v.source_url})
+        }
+        "transcribe" => {
+            let id = a(1);
+            let t = transcribe::transcribe(&id, std::sync::Arc::new(|stage: &str, d: u64, t: u64| {
+                if let Some(p) = (d * 100).checked_div(t) {
+                    eprint!("\r{stage} {p}%   ");
+                }
+            }))
+            .await?;
+            let mut v = library::load(&id)?;
+            v.has_transcript = !t.words.is_empty();
+            library::save(&v)?;
+            json!({"video_id": id, "words": t.words.len()})
+        }
+        "shorts" => {
+            let n = |i: usize, d: f64| args.get(i).and_then(|x| x.parse::<f64>().ok()).unwrap_or(d);
+            agent.call("suggest_shorts", &json!({"video_id": a(1), "count": n(2, 5.0) as u64, "min": n(3, 15.0), "max": n(4, 60.0)})).await?
+        }
+        "render-shorts" => {
+            agent.call("render_shorts", &json!({"video_id": a(1), "framing": a(2), "clip_ids": args.get(3..).unwrap_or_default()})).await?
+        }
         "export" => {
             agent
                 .call("export", &json!({"video_id": a(1), "kind": a(2)}))
@@ -79,7 +120,7 @@ async fn run(args: &[String]) -> anyhow::Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: cli mcp | list | transcript ID | summary ID | plan ID \"request\" | apply ID plan.json [--preview] | undo ID | export ID mp4|captioned|srt|vtt | share ID --yes | delete ID --yes"
+                "usage: cli mcp | list | transcript ID | summary ID | plan ID \"request\" | apply ID plan.json [--preview] | undo ID | export ID mp4|captioned|srt|vtt | share ID --yes | delete ID --yes | record SECONDS | import FILE_OR_URL | transcribe ID | shorts ID [COUNT MIN MAX] | render-shorts ID FRAMING CLIP_ID..."
             );
             std::process::exit(2);
         }

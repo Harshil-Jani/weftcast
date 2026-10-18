@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, brand, errText, type AiStatus, type Provider, type Tools, type Voice } from "../lib/api";
+import { api, brand, errText, type AiStatus, type Provider, type Tools, type Voice, type WhisperModel } from "../lib/api";
 
 export default function Settings() {
   const [status, setStatus] = useState<AiStatus | null>(null);
@@ -9,6 +9,12 @@ export default function Settings() {
   const [key, setKey] = useState("");
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [modelFile, setModelFile] = useState("");
+  const [busy, setBusy] = useState("");
+  const act = async (label: string, fn: () => Promise<void>, done?: string) => {
+    setBusy(label); setMsg(null);
+    try { await fn(); refresh(); if (done) setMsg({ text: done }); } catch (e) { setMsg({ text: errText(e), error: true }); } finally { setBusy(""); }
+  };
   const [voiceDefault, setVoiceDefault] = useState<Voice>({ gain_db: 0, auto: false });
 
   const refresh = () => {
@@ -37,13 +43,14 @@ export default function Settings() {
         <p className="muted small">{brand.name} never sees your Claude login. It either asks your own installed Claude Code, or uses an API key you provide.</p>
         <label className="check"><input type="radio" checked={provider === "cli"} onChange={() => { setProvider("cli"); save("cli", null); }} />
           Use my Claude Code login (the <code>claude</code> command)</label>
-        <p className="small status">{status?.cli_installed ? `Found ${status.cli_version}` : "claude is not installed. Install Claude Code and run `claude` once to log in."}</p>
+        <p className="small status">{!status?.cli_installed ? "claude is not installed. Install Claude Code and run `claude` once to sign in." : status.cli_logged_in === false ? `Found ${status.cli_version}, but it is not signed in. Run \`claude\` once in Terminal.` : `Found ${status.cli_version}, signed in.`}</p>
         <label className="check"><input type="radio" checked={provider === "api"} onChange={() => { setProvider("api"); save("api", null); }} />
           Use an Anthropic API key</label>
         {provider === "api" && (
           <div className="row">
             <input type="password" value={key} placeholder={keySaved ? "A key is saved" : status?.api_key_set ? "Using ANTHROPIC_API_KEY" : "sk-ant-..."} onChange={(e) => setKey(e.target.value)} />
-            <button onClick={() => save("api", key)}>Save key</button>
+            <button onClick={() => save("api", key)}>Save in Keychain</button>
+            {keySaved && <button className="ghost" onClick={() => api.forgetKey().then(refresh)}>Forget key</button>}
           </div>
         )}
         <div className="row">
@@ -78,11 +85,29 @@ export default function Settings() {
       <div className="card panel">
         <h3>This computer</h3>
         <ul className="checks">
-          <Check ok={tools?.ffmpeg} label="ffmpeg (recording and editing)" fix="brew install ffmpeg" />
-          <Check ok={tools?.whisper} label="whisper-cli (local transcripts)" fix="brew install whisper-cpp" />
-          <Check ok={tools?.model} label="Speech model (downloads on first transcript, about 150 MB)" />
-          <Check ok={tools?.cloudflared} label="cloudflared (public links)" fix="brew install cloudflared" />
+          <Check ok={tools?.ffmpeg} label="Recording and editing engine (bundled)" />
+          <Check ok={tools?.captions_burn} label="Burned-in captions (bundled)" />
+          <Check ok={tools?.cloudflared} label="Public links (bundled)" />
+          <Check ok={tools?.ytdlp} label="YouTube importer (bundled)" />
+          <Check ok={tools?.model} label={`Speech model ${tools?.model ? "installed" : `(downloads on first transcript, about ${tools?.model_mb ?? 150} MB)`}`} />
         </ul>
+        <div className="row wrap">
+          <span>Speech model</span>
+          <select value={tools?.model_name ?? "base_en"} onChange={(e) => api.saveSettings(provider, null, undefined, { whisperModel: e.target.value as WhisperModel }).then(refresh)}>
+            <option value="base_en">Base (English, about 150 MB, faster)</option>
+            <option value="small_en">Small (English, about 490 MB, more accurate)</option>
+          </select>
+        </div>
+        <div className="row">
+          <input value={modelFile} onChange={(e) => setModelFile(e.target.value)} placeholder="Offline install: path to ggml-base.en.bin or ggml-small.en.bin" />
+          <button disabled={!modelFile.trim() || !!busy} onClick={() => act("Installing model", async () => {
+            await api.installModel(modelFile.trim(), modelFile.includes("small") ? "small_en" : "base_en"); setModelFile("");
+          }, "Model installed.")}>Install</button>
+        </div>
+        <div className="row">
+          <button disabled={!!busy} onClick={() => act("Updating", async () => setMsg({ text: `YouTube importer updated to ${await api.updateYoutube()}.` }))}>Update YouTube importer</button>
+          {busy && <span className="muted small">{busy}...</span>}
+        </div>
         <p className="muted small">Library folder: <code>{tools?.library}</code></p>
         <div className="row wrap">
           <button onClick={() => api.privacy("screen")}>Screen Recording permission</button>
@@ -94,6 +119,6 @@ export default function Settings() {
   );
 }
 
-function Check({ ok, label, fix }: { ok?: boolean; label: string; fix?: string }) {
-  return <li className={ok ? "yes" : "no"}>{ok ? "✓" : "○"} {label}{!ok && fix ? <code>{fix}</code> : null}</li>;
+function Check({ ok, label }: { ok?: boolean; label: string }) {
+  return <li className={ok ? "yes" : "no"}>{ok ? "✓" : "○"} {label}</li>;
 }

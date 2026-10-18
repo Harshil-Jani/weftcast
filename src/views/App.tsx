@@ -3,8 +3,10 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { api, base, brand, errText, mmss, type Devices, type StartOptions, type Video } from "../lib/api";
 import Player from "./Player";
 import Settings from "./Settings";
+import Onboarding from "./Onboarding";
+import Shorts from "./Shorts";
 
-type Tab = "library" | "settings";
+type Tab = "library" | "shorts" | "settings";
 const PREFS = "rec-prefs";
 
 type Prefs = StartOptions & { camera: boolean };
@@ -27,11 +29,13 @@ export default function App() {
   const [open, setOpen] = useState<string | null>(null);
   const [newRec, setNewRec] = useState(false);
   const [srv, setSrv] = useState("");
+  const [onboard, setOnboard] = useState(false);
 
   const refresh = useCallback(() => { api.list().then(setVideos); }, []);
   useEffect(() => {
     refresh();
     base().then(setSrv);
+    api.settings().then((s) => setOnboard(!s.onboarded));
     const offs = [
       listen<string>("recording-saved", (e) => { refresh(); setOpen(e.payload); setTab("library"); }),
       // Global shortcut and tray: stop if recording, otherwise start with the last settings.
@@ -52,18 +56,20 @@ export default function App() {
         <button className="primary big" onClick={() => setNewRec(true)}>● New recording</button>
         <nav>
           <button className={tab === "library" && !open ? "on" : ""} onClick={() => { setTab("library"); setOpen(null); }}>Library</button>
+          <button className={tab === "shorts" ? "on" : ""} onClick={() => { setTab("shorts"); setOpen(null); }}>Shorts</button>
           <button className={tab === "settings" ? "on" : ""} onClick={() => { setTab("settings"); setOpen(null); }}>Settings</button>
         </nav>
         <p className="hint">Alt+Shift+R starts and stops a recording from anywhere.</p>
       </aside>
       <main className="content">
-        {tab === "settings" ? <Settings /> : open ? (
+        {tab === "settings" ? <Settings /> : tab === "shorts" ? <Shorts videos={videos} onImported={refresh} /> : open ? (
           <Player key={open} id={open} onBack={() => { setOpen(null); refresh(); }} onDeleted={() => { setOpen(null); refresh(); }} onOpen={(n) => { refresh(); setOpen(n); }} />
         ) : (
           <Library videos={videos} srv={srv} onOpen={setOpen} onNew={() => setNewRec(true)} />
         )}
       </main>
       {newRec && <NewRecording onClose={() => setNewRec(false)} />}
+      {onboard && <Onboarding onDone={() => setOnboard(false)} />}
     </div>
   );
 }

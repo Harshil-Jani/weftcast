@@ -7,9 +7,14 @@ export type Chapter = { start: number; title: string };
 export type Video = {
   id: string; share_id: string; title: string; created_at: string; duration: number;
   summary: string | null; chapters: Chapter[]; has_transcript: boolean; public_questions: boolean; edited: boolean;
-  voice: Voice; notes: Note[]; caption_langs: string[];
+  voice: Voice; notes: Note[]; caption_langs: string[]; source_url: string | null; bubble: [number, number, number, number] | null;
 };
 export type Note = { time: number; text: string };
+export type Clip = { id: string; start: number; end: number; title: string; reason: string; score: number; score_reason: string; caption: string; selected: boolean };
+export type Limits = { count: number; min: number; max: number; allow_overlap: boolean };
+export type Framing = "center" | "blur_fit" | "split";
+export type ShortsFile = { limits: Limits | null; clips: Clip[]; rendered: string[] };
+export type Rendered = { clip: string; file: string; captions: string };
 export type EditPlan = { ops: Record<string, unknown>[]; explanation: string };
 export type ShortPlan = { ranges: Range[]; length: number; explanation: string };
 export type Voice = { gain_db: number; auto: boolean };
@@ -26,9 +31,11 @@ export type Range = { start: number; end: number };
 export type CutPlan = { keep: Range[]; removed: [Range, string][]; original: number; result: number };
 export type Answer = { answer: string; timestamps: number[] };
 export type Provider = "cli" | "api";
-export type Settings = { provider: Provider; api_key: string | null; voice_default: Voice };
-export type AiStatus = { provider: Provider; cli_installed: boolean; cli_version: string | null; api_key_set: boolean; model: string };
-export type Tools = { ffmpeg: boolean; whisper: boolean; model: boolean; cloudflared: boolean; library: string };
+export type WhisperModel = "base_en" | "small_en";
+export type Settings = { provider: Provider; api_key: string | null; voice_default: Voice; whisper_model: WhisperModel; onboarded: boolean };
+export type AiStatus = { provider: Provider; cli_installed: boolean; cli_version: string | null; cli_logged_in: boolean | null; api_key_set: boolean; model: string };
+export const aiReady = (s: AiStatus | null) => !!s && (s.provider === "api" ? s.api_key_set : !!s.cli_installed && s.cli_logged_in !== false);
+export type Tools = { ffmpeg: boolean; captions_burn: boolean; model: boolean; model_name: WhisperModel; model_mb: number; cloudflared: boolean; ytdlp: boolean; library: string };
 
 export const api = {
   port: () => invoke<number>("server_port"),
@@ -59,7 +66,11 @@ export const api = {
   shareStop: () => invoke<void>("share_stop"),
   shareStatus: () => invoke<string | null>("share_status"),
   settings: () => invoke<Settings>("get_settings"),
-  saveSettings: (provider: Provider, apiKey: string | null, voiceDefault?: Voice) => invoke<void>("save_settings", { provider, apiKey, voiceDefault: voiceDefault ?? null }),
+  saveSettings: (provider: Provider, apiKey: string | null, voiceDefault?: Voice, extra?: { whisperModel?: WhisperModel; onboarded?: boolean }) =>
+    invoke<void>("save_settings", { provider, apiKey, voiceDefault: voiceDefault ?? null, whisperModel: extra?.whisperModel ?? null, onboarded: extra?.onboarded ?? null }),
+  forgetKey: () => invoke<void>("forget_api_key"),
+  installModel: (path: string, model: WhisperModel) => invoke<void>("install_model_file", { path, model }),
+  updateYoutube: () => invoke<string>("update_youtube_importer"),
   setVoice: (id: string, voice: Voice) => invoke<Video>("set_voice", { id, voice }),
   voiceStats: (id: string, voice: Voice) => invoke<VoiceStats>("voice_stats", { id, voice }),
   planEdit: (id: string, prompt: string) => invoke<{ plan: EditPlan; lines: string[] }>("plan_edit", { id, prompt }),
@@ -69,6 +80,15 @@ export const api = {
   renderShorter: (id: string, ranges: Range[]) => invoke<Video>("render_shorter", { id, ranges }),
   translate: (id: string, lang: string) => invoke<Video>("translate_captions", { id, lang }),
   languages: () => invoke<[string, string][]>("caption_languages"),
+  importFile: (path: string) => invoke<Video>("import_file", { path }),
+  importYoutube: (url: string) => invoke<Video>("import_youtube", { url }),
+  shorts: (id: string) => invoke<ShortsFile>("get_shorts", { id }),
+  suggestShorts: (id: string, limits: Limits) => invoke<{ clips: Clip[]; rejected: string[] }>("suggest_shorts", { id, limits }),
+  rerollShort: (id: string, clipId: string) => invoke<ShortsFile>("reroll_short", { id, clipId }),
+  updateShort: (id: string, clip: Clip) => invoke<ShortsFile>("update_short", { id, clip }),
+  nudgeShort: (id: string, clipId: string, edge: "start" | "end", delta: number, toSentence: boolean) => invoke<ShortsFile>("nudge_short", { id, clipId, edge, delta, toSentence }),
+  renderShorts: (id: string, clipIds: string[], framing: Framing) => invoke<{ files: Rendered[]; note: string | null }>("render_shorts", { id, clipIds, framing }),
+  reveal_path: (path: string) => invoke<void>("reveal_path", { path }),
   voicePreview: (id: string, voice: Voice, start: number) => invoke<void>("voice_preview", { id, voice, start }),
   aiStatus: () => invoke<AiStatus>("ai_status"),
   testClaude: () => invoke<string>("test_claude"),

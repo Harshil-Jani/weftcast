@@ -63,7 +63,7 @@ pub async fn run(name: &str, args: &[&str]) -> Result<String> {
         .stdin(Stdio::null())
         .output()
         .await
-        .with_context(|| format!("{name} is not installed (see `npm run doctor`)"))?;
+        .with_context(|| format!("{name} is missing from this app. Reinstall it (developers: node scripts/fetch-sidecars.mjs)"))?;
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     if !out.status.success() {
         let tail: Vec<&str> = stderr.lines().rev().take(6).collect();

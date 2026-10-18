@@ -129,3 +129,21 @@ textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px 
 button.chip { padding: 4px 10px; border-radius: 999px; }
 button.chip.on { border-color: var(--accent); color: var(--accent); }
 .caption-picker { margin-top: 8px; }
+
+.notice { padding: 10px 14px; margin: 12px 0 0; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.onboarding { width: 560px; display: grid; gap: 12px; max-height: 90vh; overflow: auto; }
+.onboarding h2 { margin: 0; }
+
+.shorts { display: grid; gap: 14px; }
+.section { font-size: 14px; margin-top: 8px; }
+label.inline { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; }
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.clip { overflow: hidden; }
+.clip.on { border-color: var(--accent); }
+.clip-video { position: relative; background: #000; }
+.clip-video video { width: 100%; aspect-ratio: 16 / 10; display: block; cursor: pointer; }
+.score { position: absolute; top: 8px; right: 8px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; border-radius: 999px; padding: 2px 8px; }
+.clip-body { padding: 12px; display: grid; gap: 6px; }
+.clip-body label.check { margin: 0; }
+.clip-title { font-weight: 700; color: var(--ink); }
+.nudges button { padding: 3px 8px; font-size: 12px; }

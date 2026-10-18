@@ -45,7 +45,18 @@ const tauriConf = {
     active: true,
     targets: "all",
     icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"],
-    macOS: { minimumSystemVersion: "12.3", entitlements: null },
+    // Helpers shipped inside the app (scripts/fetch-sidecars.mjs prepares them).
+    externalBin: ["binaries/ffmpeg", "binaries/ffprobe", "binaries/cloudflared", "binaries/yt-dlp", "binaries/cli"],
+    resources: { "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md" },
+    macOS: {
+      minimumSystemVersion: "12.3",
+      entitlements: "Entitlements.plist",
+      hardenedRuntime: true,
+      // Ad-hoc signed by default so it runs on Apple Silicon. For Developer ID signing and
+      // notarization set APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID and APPLE_ID + APPLE_PASSWORD
+      // (or APPLE_API_KEY / APPLE_API_ISSUER) in the environment; tauri build picks them up.
+      signingIdentity: process.env.APPLE_SIGNING_IDENTITY || "-",
+    },
   },
 };
 writeFileSync(join(root, "src-tauri/tauri.conf.json"), JSON.stringify(tauriConf, null, 2) + "\n");
@@ -64,7 +75,7 @@ let readmeText = readme.join("\n");
 const mcp = [
   "<!-- brand:mcp -->",
   "```bash",
-  "cd src-tauri && cargo build --release --bin cli",
+  "cd src-tauri && cargo build --release -p cli",
   `claude mcp add ${brand.slug} -- "$PWD/target/release/cli" mcp`,
   "```",
   "",
@@ -73,6 +84,8 @@ const mcp = [
   "<!-- /brand:mcp -->",
 ].join("\n");
 readmeText = readmeText.replace(/<!-- brand:mcp -->[\s\S]*?<!-- \/brand:mcp -->/, mcp);
+const xattr = ["<!-- brand:xattr -->", "```bash", `xattr -dr com.apple.quarantine "/Applications/${brand.name}.app"`, "```", "<!-- /brand:xattr -->"].join("\n");
+readmeText = readmeText.replace(/<!-- brand:xattr -->[\s\S]*?<!-- \/brand:xattr -->/, xattr);
 writeFileSync(readmePath, readmeText);
 
 console.log(`brand: ${brand.name} (${brand.identifier})`);

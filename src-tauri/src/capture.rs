@@ -39,7 +39,7 @@ pub async fn devices() -> Result<Devices> {
         ])
         .output()
         .await
-        .context("ffmpeg is not installed (see `npm run doctor`)")?;
+        .context("ffmpeg is missing from this app. Reinstall it (developers: node scripts/fetch-sidecars.mjs)")?;
     Ok(parse_devices(&String::from_utf8_lossy(&out.stderr)))
 }
 
@@ -145,7 +145,7 @@ async fn spawn_segment(s: &mut Session) -> Result<()> {
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .context("ffmpeg is not installed (see `npm run doctor`)")?;
+        .context("ffmpeg is missing from this app. Reinstall it (developers: node scripts/fetch-sidecars.mjs)")?;
     let log = s.log.clone();
     if let Some(err) = child.stderr.take() {
         tokio::spawn(async move {

@@ -104,7 +104,12 @@ pub async fn recording_state(state: State<'_, AppState>) -> Res<RecState> {
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Res<Video> {
-    let res = state.recorder.stop().await.map_err(e);
+    let bubble = bubble_rect(&app);
+    let mut res = state.recorder.stop().await.map_err(e);
+    if let (Ok(v), Some(b)) = (res.as_mut(), bubble) {
+        v.bubble = Some(b);
+        let _ = library::save(v);
+    }
     crate::show_overlays(&app, false, false);
     let _ = app.emit("recording-changed", false);
     if let Some(w) = app.get_webview_window("main") {
@@ -115,6 +120,24 @@ pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Res<V
         let _ = app.emit("recording-saved", v.id.clone());
     }
     res
+}
+
+/// Where the camera bubble sits on the screen, as fractions, so Shorts can crop the camera.
+fn bubble_rect(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    let w = app.get_webview_window("bubble")?;
+    if !w.is_visible().ok()? {
+        return None;
+    }
+    let (pos, size) = (w.outer_position().ok()?, w.outer_size().ok()?);
+    let m = w.current_monitor().ok()??;
+    let (mw, mh) = (m.size().width as f64, m.size().height as f64);
+    let (mx, my) = (m.position().x as f64, m.position().y as f64);
+    Some((
+        ((pos.x as f64 - mx) / mw).clamp(0.0, 1.0),
+        ((pos.y as f64 - my) / mh).clamp(0.0, 1.0),
+        (size.width as f64 / mw).min(1.0),
+        (size.height as f64 / mh).min(1.0),
+    ))
 }
 
 #[tauri::command]
@@ -498,4 +521,141 @@ pub fn caption_languages() -> Vec<(String, String)> {
         .iter()
         .map(|(c, n)| (c.to_string(), n.to_string()))
         .collect()
+}
+
+#[tauri::command]
+pub async fn import_file(path: String) -> Res<Video> {
+    crate::importer::file(std::path::Path::new(path.trim()))
+        .await
+        .map_err(e)
+}
+
+#[tauri::command]
+pub async fn import_youtube(app: AppHandle, url: String) -> Res<Video> {
+    let v = crate::importer::youtube(&url, |p| {
+        let _ = app.emit("import-progress", p);
+    })
+    .await
+    .map_err(e)?;
+    Ok(v)
+}
+
+#[tauri::command]
+pub fn get_shorts(id: String) -> crate::shorts::ShortsFile {
+    crate::shorts::load(&id)
+}
+
+#[tauri::command]
+pub async fn suggest_shorts(id: String, limits: crate::shorts::Limits) -> Res<Value> {
+    let v = library::load(&id).map_err(e)?;
+    let t = library::load_transcript(&id).ok_or("Transcribe the video first.")?;
+    let (clips, rejected) = crate::shorts::suggest(&v, &t, &limits, &[])
+        .await
+        .map_err(e)?;
+    crate::shorts::save(
+        &id,
+        &crate::shorts::ShortsFile {
+            limits: Some(limits),
+            clips: clips.clone(),
+            rendered: vec![],
+        },
+    )
+    .map_err(e)?;
+    Ok(json!({ "clips": clips, "rejected": rejected }))
+}
+
+#[tauri::command]
+pub async fn reroll_short(id: String, clip_id: String) -> Res<crate::shorts::ShortsFile> {
+    let v = library::load(&id).map_err(e)?;
+    let t = library::load_transcript(&id).ok_or("Transcribe the video first.")?;
+    let mut f = crate::shorts::load(&id);
+    let limits = crate::shorts::Limits {
+        count: 1,
+        ..f.limits.unwrap_or_default()
+    };
+    let avoid: Vec<crate::cuts::Range> = f
+        .clips
+        .iter()
+        .map(|c| crate::cuts::Range {
+            start: c.start,
+            end: c.end,
+        })
+        .collect();
+    let (mut new, _) = crate::shorts::suggest(&v, &t, &limits, &avoid)
+        .await
+        .map_err(e)?;
+    let mut replacement = new.pop().ok_or("Claude found no other clip that fits.")?;
+    replacement.id = clip_id.clone();
+    let slot = f
+        .clips
+        .iter_mut()
+        .find(|c| c.id == clip_id)
+        .ok_or("no such clip")?;
+    *slot = replacement;
+    crate::shorts::save(&id, &f).map_err(e)?;
+    Ok(f)
+}
+
+#[tauri::command]
+pub fn update_short(id: String, clip: crate::shorts::Clip) -> Res<crate::shorts::ShortsFile> {
+    let mut f = crate::shorts::load(&id);
+    let slot = f
+        .clips
+        .iter_mut()
+        .find(|c| c.id == clip.id)
+        .ok_or("no such clip")?;
+    slot.title = clip.title.trim().chars().take(100).collect();
+    slot.selected = clip.selected;
+    crate::shorts::save(&id, &f).map_err(e)?;
+    Ok(f)
+}
+
+#[tauri::command]
+pub fn nudge_short(
+    id: String,
+    clip_id: String,
+    edge: String,
+    delta: f64,
+    to_sentence: bool,
+) -> Res<crate::shorts::ShortsFile> {
+    let v = library::load(&id).map_err(e)?;
+    let sents = library::load_transcript(&id)
+        .map(|t| crate::cuts::sentences(&t.words))
+        .unwrap_or_default();
+    let mut f = crate::shorts::load(&id);
+    let c = f
+        .clips
+        .iter_mut()
+        .find(|c| c.id == clip_id)
+        .ok_or("no such clip")?;
+    crate::shorts::nudge(c, &edge, delta, to_sentence, &sents, v.duration);
+    crate::shorts::save(&id, &f).map_err(e)?;
+    Ok(f)
+}
+
+#[tauri::command]
+pub async fn render_shorts(
+    id: String,
+    clip_ids: Vec<String>,
+    framing: crate::shorts::Framing,
+) -> Res<Value> {
+    let v = library::load(&id).map_err(e)?;
+    let (files, note) = crate::shorts::render(&v, &clip_ids, framing)
+        .await
+        .map_err(e)?;
+    Ok(json!({ "files": files, "note": note }))
+}
+
+#[tauri::command]
+pub fn reveal_path(path: String) -> Res<()> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.starts_with(library::root()) {
+        return Err("only files in the library can be shown".into());
+    }
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(p)
+        .spawn()
+        .map_err(e)?;
+    Ok(())
 }

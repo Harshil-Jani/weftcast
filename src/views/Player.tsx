@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { api, base, errText, mmss, type Answer, type CutOptions, type CutPlan, type VideoDetail } from "../lib/api";
+import { aiReady, api, base, errText, mmss, type AiStatus, type Answer, type CutOptions, type CutPlan, type VideoDetail } from "../lib/api";
 import VoicePanel from "./VoicePanel";
 import { MakeShorter, PromptEdit, TranslateCaptions } from "./AiPanels";
 
@@ -11,6 +11,7 @@ const DEFAULT_CUTS: CutOptions = { remove_fillers: true, remove_silences: true, 
 export default function Player({ id, onBack, onDeleted, onOpen }: Props) {
   const [capLang, setCapLang] = useState("en");
   const [langNames, setLangNames] = useState<Record<string, string>>({});
+  const [ai, setAi] = useState<AiStatus | null>(null);
   const [d, setD] = useState<VideoDetail | null>(null);
   const [srv, setSrv] = useState("");
   const [busy, setBusy] = useState("");
@@ -32,6 +33,7 @@ export default function Player({ id, onBack, onDeleted, onOpen }: Props) {
     base().then(setSrv);
     api.shareStatus().then(setPublicUrl);
     api.languages().then((l) => setLangNames(Object.fromEntries(l)));
+    api.aiStatus().then(setAi);
     const off = listen<{ id: string; stage: string; done: number; total: number }>("progress", (e) => {
       if (e.payload.id !== id) return;
       const { stage, done, total } = e.payload;
@@ -93,6 +95,9 @@ export default function Player({ id, onBack, onDeleted, onOpen }: Props) {
           {msg && <p className={msg.error ? "error" : "ok"}>{msg.text}</p>}
           {(busy || progress) && <p className="muted">{progress || `${busy}...`}</p>}
 
+          {ai && !aiReady(ai) && (
+            <p className="card notice">Claude isn't connected, so the AI buttons (titles, prompt edits, shorter versions, translations, questions) won't work yet. Everything else does. Connect your Claude Code login or an API key in Settings.</p>
+          )}
           <div className="actions">
             <PromptEdit video={v} busy={busy} run={run} canUndo={d.can_undo} />
             <MakeShorter video={v} busy={busy} run={run} seek={seek} onCreated={(s) => onOpen(s.id)} />
