@@ -1,0 +1,8 @@
+{
+  "name": "Recorder",
+  "slug": "recorder",
+  "identifier": "dev.recorder.app",
+  "tagline": "Record your screen, share a link, let Claude do the boring parts. All local.",
+  "accent": "#6d5efc",
+  "repo": "https://github.com/your-org/recorder"
+}
