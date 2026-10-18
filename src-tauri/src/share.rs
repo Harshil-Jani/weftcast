@@ -62,6 +62,17 @@ impl Tunnel {
         )?;
         // Keep draining stderr so cloudflared never blocks on a full pipe.
         tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+        // The hostname takes a few seconds to resolve; only hand out a link that already works.
+        let probe = format!("{url}/v/ready-check");
+        for _ in 0..20 {
+            if reqwest::get(&probe)
+                .await
+                .is_ok_and(|r| r.status().as_u16() == 404)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        }
         *g = Some((child, url.clone()));
         Ok(url)
     }
