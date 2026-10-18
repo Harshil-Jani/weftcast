@@ -88,7 +88,7 @@ struct Session {
 }
 
 #[derive(Default)]
-pub struct Recorder {
+pub struct Capture {
     session: tokio::sync::Mutex<Option<Session>>,
 }
 
@@ -191,7 +191,7 @@ async fn stop_child(s: &mut Session) {
     }
 }
 
-impl Recorder {
+impl Capture {
     pub async fn start(&self, opts: StartOptions) -> Result<String> {
         let mut g = self.session.lock().await;
         if g.is_some() {

@@ -33,7 +33,11 @@ pub async fn start() -> anyhow::Result<u16> {
         .route("/api/v/{share}", get(meta))
         .route("/api/v/{share}/ask", post(ask))
         // The app window loads media and captions from here. GET only: no other site can POST a question.
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods([axum::http::Method::GET]));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([axum::http::Method::GET]),
+        );
     // A fixed port keeps local links stable between launches; fall back to any free port.
     let listener =
         match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 47821))).await {

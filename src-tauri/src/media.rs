@@ -151,27 +151,38 @@ pub async fn trim(input: &Path, out: &Path, start: f64, end: f64) -> Result<()> 
 /// Keeps only `keep` ranges, joined back to back.
 pub async fn render_keep(input: &Path, out: &Path, keep: &[Range]) -> Result<()> {
     anyhow::ensure!(!keep.is_empty(), "nothing would be left of the video");
-    let expr = keep
-        .iter()
-        .map(|r| format!("between(t,{:.3},{:.3})", r.start, r.end))
-        .collect::<Vec<_>>()
-        .join("+");
-    let vf = format!("select='{expr}',setpts=N/FRAME_RATE/TB");
-    let af = format!("aselect='{expr}',asetpts=N/SR/TB");
+    let graph = keep_filter(keep);
     let mut args = vec![
         "-y",
         "-i",
         input.to_str().unwrap_or_default(),
-        "-vf",
-        &vf,
-        "-af",
-        &af,
+        "-filter_complex",
+        &graph,
+        "-map",
+        "[v]",
+        "-map",
+        "[a]",
     ];
     args.extend_from_slice(ENCODE);
     let o = out.to_string_lossy();
     args.push(&o);
     run("ffmpeg", &args).await?;
     Ok(())
+}
+
+/// trim/atrim each kept range and concat them, so video and audio are cut identically.
+/// ponytail: one filter chain per range; fine for hundreds of cuts, split into passes if it ever gets huge.
+pub fn keep_filter(keep: &[Range]) -> String {
+    let mut g = String::new();
+    for (i, r) in keep.iter().enumerate() {
+        g += &format!(
+            "[0:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS[a{i}];",
+            s = r.start,
+            e = r.end
+        );
+    }
+    let inputs: String = (0..keep.len()).map(|i| format!("[v{i}][a{i}]")).collect();
+    g + &format!("{inputs}concat=n={}:v=1:a=1[v][a]", keep.len())
 }
 
 pub async fn can_burn() -> bool {
@@ -259,4 +270,26 @@ pub async fn concat(parts: &[PathBuf], out: &Path) -> Result<()> {
         let _ = tokio::fs::remove_file(p).await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_filter_cuts_video_and_audio_together() {
+        let g = keep_filter(&[
+            Range {
+                start: 0.0,
+                end: 1.5,
+            },
+            Range {
+                start: 3.0,
+                end: 4.25,
+            },
+        ]);
+        assert!(g.contains("[0:v]trim=start=0.000:end=1.500,setpts=PTS-STARTPTS[v0]"));
+        assert!(g.contains("[0:a]atrim=start=3.000:end=4.250,asetpts=PTS-STARTPTS[a1]"));
+        assert!(g.ends_with("[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"));
+    }
 }

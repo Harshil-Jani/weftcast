@@ -17,7 +17,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use brand::BRAND;
 
 pub struct AppState {
-    pub recorder: capture::Recorder,
+    pub recorder: capture::Capture,
     pub tunnel: share::Tunnel,
     pub port: u16,
 }
