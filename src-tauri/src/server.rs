@@ -28,6 +28,8 @@ pub async fn start() -> anyhow::Result<u16> {
     let app = Router::new()
         .route("/v/{share}", get(watch))
         .route("/media/{share}", get(media))
+        .route("/raw/{share}", get(raw))
+        .route("/preview/{share}", get(preview))
         .route("/thumb/{share}", get(thumb))
         .route("/captions/{share}", get(captions))
         .route("/api/v/{share}", get(meta))
@@ -96,7 +98,22 @@ async fn serve_file(path: std::path::PathBuf, req: Request) -> Response {
 
 async fn media(Path(share): Path<String>, req: Request) -> Response {
     match find(&share) {
+        Ok(v) => serve_file(library::playable_path(&v.id), req).await,
+        Err(s) => s.into_response(),
+    }
+}
+
+/// The edit without the voice settings, so the app can preview a new gain live.
+async fn raw(Path(share): Path<String>, req: Request) -> Response {
+    match find(&share) {
         Ok(v) => serve_file(library::video_path(&v.id), req).await,
+        Err(s) => s.into_response(),
+    }
+}
+
+async fn preview(Path(share): Path<String>, req: Request) -> Response {
+    match find(&share) {
+        Ok(v) => serve_file(library::preview_path(&v.id), req).await,
         Err(s) => s.into_response(),
     }
 }

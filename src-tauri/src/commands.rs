@@ -10,7 +10,7 @@ use crate::brand::{BRAND, Brand};
 use crate::capture::{self, Devices, RecState, StartOptions};
 use crate::cuts::{self, CutOptions, CutPlan};
 use crate::library::{self, Video};
-use crate::{AppState, media, share, transcribe};
+use crate::{AppState, media, share, transcribe, voice};
 
 type Res<T> = Result<T, String>;
 fn e(err: impl std::fmt::Display) -> String {
@@ -238,6 +238,7 @@ async fn after_edit(id: &str) -> anyhow::Result<Video> {
     v.has_transcript = false;
     v.chapters.clear();
     library::clear_transcript(id);
+    crate::voice::render(id, &v.voice).await?;
     let _ = media::thumbnail(
         &library::video_path(id),
         &library::thumb_path(id),
@@ -312,7 +313,7 @@ pub async fn export_video(id: String, kind: String) -> Res<Value> {
     let words = library::load_transcript(&id)
         .map(|t| t.words)
         .unwrap_or_default();
-    let src = library::video_path(&id);
+    let src = library::playable_path(&id);
     let mut note = None;
     let out = match kind.as_str() {
         "mp4" => {
@@ -392,9 +393,16 @@ pub fn get_settings() -> Settings {
 }
 
 #[tauri::command]
-pub fn save_settings(provider: ai::Provider, api_key: Option<String>) -> Res<()> {
+pub fn save_settings(
+    provider: ai::Provider,
+    api_key: Option<String>,
+    voice_default: Option<voice::Voice>,
+) -> Res<()> {
     let mut s = ai::load_settings();
     s.provider = provider;
+    if let Some(v) = voice_default {
+        s.voice_default = v.clamped();
+    }
     if let Some(k) = api_key {
         s.api_key = if k.trim().is_empty() {
             None
@@ -448,4 +456,27 @@ pub fn open_privacy_settings(pane: String) -> Res<()> {
         .spawn()
         .map_err(e)?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_voice(id: String, voice: voice::Voice) -> Res<Video> {
+    let mut v = library::load(&id).map_err(e)?;
+    v.voice = voice.clamped();
+    voice::render(&id, &v.voice).await.map_err(e)?;
+    library::save(&v).map_err(e)?;
+    Ok(v)
+}
+
+#[tauri::command]
+pub async fn voice_stats(id: String, voice: voice::Voice) -> Res<voice::Stats> {
+    voice::stats(&id, &voice.clamped()).await.map_err(e)
+}
+
+/// Renders a 10 second clip with the voice applied; the UI plays it from /preview.
+#[tauri::command]
+pub async fn voice_preview(id: String, voice: voice::Voice, start: f64) -> Res<()> {
+    voice::preview(&id, &voice.clamped(), start)
+        .await
+        .map(|_| ())
+        .map_err(e)
 }

@@ -38,6 +38,9 @@ pub struct Video {
     pub public_questions: bool,
     #[serde(default)]
     pub edited: bool,
+    /// Voice loudness. Applied to a derived file; the raw audio is kept.
+    #[serde(default)]
+    pub voice: crate::voice::Voice,
 }
 
 pub fn root() -> PathBuf {
@@ -55,6 +58,18 @@ pub fn video_path(id: &str) -> PathBuf {
 }
 pub fn original_path(id: &str) -> PathBuf {
     dir(id).join("original.mp4")
+}
+/// The raw edit with the voice settings applied (video stream copied). Missing when voice is off.
+pub fn voiced_path(id: &str) -> PathBuf {
+    dir(id).join("voiced.mp4")
+}
+pub fn preview_path(id: &str) -> PathBuf {
+    dir(id).join("preview.mp4")
+}
+/// What viewers and exports get: the voiced file when there is one, else the raw edit.
+pub fn playable_path(id: &str) -> PathBuf {
+    let v = voiced_path(id);
+    if exists(&v) { v } else { video_path(id) }
 }
 pub fn thumb_path(id: &str) -> PathBuf {
     dir(id).join("thumb.jpg")

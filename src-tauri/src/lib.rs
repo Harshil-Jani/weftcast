@@ -8,6 +8,7 @@ pub mod media;
 pub mod server;
 pub mod share;
 pub mod transcribe;
+pub mod voice;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -159,6 +160,9 @@ pub fn run() {
             commands::test_claude,
             commands::tools_status,
             commands::open_privacy_settings,
+            commands::set_voice,
+            commands::voice_stats,
+            commands::voice_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

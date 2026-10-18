@@ -294,6 +294,15 @@ pub async fn finish(id: &str, parts: &[PathBuf]) -> Result<Video> {
         ..Default::default()
     };
     library::save(&v)?;
+    // Voice level for new recordings (Settings). The raw audio stays in video.mp4.
+    let default = crate::ai::load_settings().voice_default.clamped();
+    if !default.is_off() {
+        let mut v = v;
+        v.voice = default;
+        library::save(&v)?;
+        crate::voice::render(id, &default).await?;
+        return Ok(v);
+    }
     Ok(v)
 }
 

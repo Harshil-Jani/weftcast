@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, base, errText, mmss, type Answer, type CutOptions, type CutPlan, type VideoDetail } from "../lib/api";
+import VoicePanel from "./VoicePanel";
 
 type Props = { id: string; onBack: () => void; onDeleted: () => void };
 const DEFAULT_CUTS: CutOptions = { remove_fillers: true, remove_silences: true, min_silence: 0.8, pad: 0.2 };
@@ -37,7 +38,7 @@ export default function Player({ id, onBack, onDeleted }: Props) {
 
   if (!d) return <p className="muted">Loading...</p>;
   const v = d.video;
-  const src = `${srv}/media/${v.share_id}.mp4?d=${v.duration}`;
+  const src = `${srv}/raw/${v.share_id}.mp4?d=${v.duration}`;
   const localLink = `${srv}/v/${v.share_id}`;
   const publicLink = publicUrl ? `${publicUrl}/v/${v.share_id}` : null;
 
@@ -80,6 +81,8 @@ export default function Player({ id, onBack, onDeleted }: Props) {
                 : <button className="primary" disabled={!!busy} onClick={() => run("Claude is writing", () => api.insights(id), "Title, summary and chapters updated.")}>Write title, summary and chapters</button>}
               {v.has_transcript && <button disabled={!!busy} onClick={() => run("Transcribing", () => api.transcribe(id), "Transcript refreshed.")}>Transcribe again</button>}
             </Panel>
+
+            <VoicePanel video={v} player={video} onSaved={() => { load(); setMsg({ text: "Voice applied to shares and exports." }); }} />
 
             <Panel title="Remove ums and silences">
               <label className="check"><input type="checkbox" checked={cutOpts.remove_fillers} onChange={(e) => { setCutOpts({ ...cutOpts, remove_fillers: e.target.checked }); setPlan(null); }} /> Filler words (um, uh)</label>

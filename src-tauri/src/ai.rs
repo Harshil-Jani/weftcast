@@ -29,6 +29,9 @@ pub struct Settings {
     /// Optional. The ANTHROPIC_API_KEY environment variable wins when set.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Voice level applied to new recordings when they are saved.
+    #[serde(default)]
+    pub voice_default: crate::voice::Voice,
 }
 
 fn settings_path() -> std::path::PathBuf {

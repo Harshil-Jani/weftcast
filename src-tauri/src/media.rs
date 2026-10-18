@@ -151,7 +151,7 @@ pub async fn trim(input: &Path, out: &Path, start: f64, end: f64) -> Result<()> 
 /// Keeps only `keep` ranges, joined back to back.
 pub async fn render_keep(input: &Path, out: &Path, keep: &[Range]) -> Result<()> {
     anyhow::ensure!(!keep.is_empty(), "nothing would be left of the video");
-    let graph = keep_filter(keep);
+    let graph = keep_filter(keep, None);
     let mut args = vec![
         "-y",
         "-i",
@@ -172,7 +172,8 @@ pub async fn render_keep(input: &Path, out: &Path, keep: &[Range]) -> Result<()>
 
 /// trim/atrim each kept range and concat them, so video and audio are cut identically.
 /// ponytail: one filter chain per range; fine for hundreds of cuts, split into passes if it ever gets huge.
-pub fn keep_filter(keep: &[Range]) -> String {
+/// With `voice`, the audio filter chain runs once on the joined audio.
+pub fn keep_filter(keep: &[Range], voice: Option<&str>) -> String {
     let mut g = String::new();
     for (i, r) in keep.iter().enumerate() {
         g += &format!(
@@ -182,7 +183,55 @@ pub fn keep_filter(keep: &[Range]) -> String {
         );
     }
     let inputs: String = (0..keep.len()).map(|i| format!("[v{i}][a{i}]")).collect();
-    g + &format!("{inputs}concat=n={}:v=1:a=1[v][a]", keep.len())
+    match voice {
+        None => g + &format!("{inputs}concat=n={}:v=1:a=1[v][a]", keep.len()),
+        Some(af) => {
+            g + &format!(
+                "{inputs}concat=n={}:v=1:a=1[v][acat];[acat]{af}[a]",
+                keep.len()
+            )
+        }
+    }
+}
+
+/// Re-encodes only the audio through `af`; the video stream is copied, so it is fast and lossless.
+/// `window` = (start, seconds) for previews.
+pub async fn audio_only(
+    input: &Path,
+    out: &Path,
+    af: &str,
+    window: Option<(f64, f64)>,
+) -> Result<()> {
+    let (ss, t) = window
+        .map(|(s, d)| (format!("{s:.3}"), format!("{d:.3}")))
+        .unwrap_or_default();
+    let mut args = vec!["-y"];
+    if window.is_some() {
+        args.extend(["-ss", &ss, "-t", &t]);
+    }
+    let i = input.to_string_lossy();
+    let o = out.to_string_lossy();
+    args.extend([
+        "-i",
+        &i,
+        "-map",
+        "0:v:0?",
+        "-map",
+        "0:a:0",
+        "-c:v",
+        "copy",
+        "-af",
+        af,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-movflags",
+        "+faststart",
+        &o,
+    ]);
+    run("ffmpeg", &args).await?;
+    Ok(())
 }
 
 pub async fn can_burn() -> bool {
@@ -278,16 +327,19 @@ mod tests {
 
     #[test]
     fn keep_filter_cuts_video_and_audio_together() {
-        let g = keep_filter(&[
-            Range {
-                start: 0.0,
-                end: 1.5,
-            },
-            Range {
-                start: 3.0,
-                end: 4.25,
-            },
-        ]);
+        let g = keep_filter(
+            &[
+                Range {
+                    start: 0.0,
+                    end: 1.5,
+                },
+                Range {
+                    start: 3.0,
+                    end: 4.25,
+                },
+            ],
+            None,
+        );
         assert!(g.contains("[0:v]trim=start=0.000:end=1.500,setpts=PTS-STARTPTS[v0]"));
         assert!(g.contains("[0:a]atrim=start=3.000:end=4.250,asetpts=PTS-STARTPTS[a1]"));
         assert!(g.ends_with("[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"));

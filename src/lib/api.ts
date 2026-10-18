@@ -7,7 +7,11 @@ export type Chapter = { start: number; title: string };
 export type Video = {
   id: string; share_id: string; title: string; created_at: string; duration: number;
   summary: string | null; chapters: Chapter[]; has_transcript: boolean; public_questions: boolean; edited: boolean;
+  voice: Voice;
 };
+export type Voice = { gain_db: number; auto: boolean };
+export type Level = { lufs: number; true_peak: number };
+export type VoiceStats = { raw: Level; applied: Level | null; predicted_peak: number; clips: boolean };
 export type Cue = [number, number, string];
 export type VideoDetail = { video: Video; cues: Cue[]; has_original: boolean };
 export type Device = { index: string; name: string };
@@ -19,7 +23,7 @@ export type Range = { start: number; end: number };
 export type CutPlan = { keep: Range[]; removed: [Range, string][]; original: number; result: number };
 export type Answer = { answer: string; timestamps: number[] };
 export type Provider = "cli" | "api";
-export type Settings = { provider: Provider; api_key: string | null };
+export type Settings = { provider: Provider; api_key: string | null; voice_default: Voice };
 export type AiStatus = { provider: Provider; cli_installed: boolean; cli_version: string | null; api_key_set: boolean; model: string };
 export type Tools = { ffmpeg: boolean; whisper: boolean; model: boolean; cloudflared: boolean; library: string };
 
@@ -52,7 +56,10 @@ export const api = {
   shareStop: () => invoke<void>("share_stop"),
   shareStatus: () => invoke<string | null>("share_status"),
   settings: () => invoke<Settings>("get_settings"),
-  saveSettings: (provider: Provider, apiKey: string | null) => invoke<void>("save_settings", { provider, apiKey }),
+  saveSettings: (provider: Provider, apiKey: string | null, voiceDefault?: Voice) => invoke<void>("save_settings", { provider, apiKey, voiceDefault: voiceDefault ?? null }),
+  setVoice: (id: string, voice: Voice) => invoke<Video>("set_voice", { id, voice }),
+  voiceStats: (id: string, voice: Voice) => invoke<VoiceStats>("voice_stats", { id, voice }),
+  voicePreview: (id: string, voice: Voice, start: number) => invoke<void>("voice_preview", { id, voice, start }),
   aiStatus: () => invoke<AiStatus>("ai_status"),
   testClaude: () => invoke<string>("test_claude"),
   tools: () => invoke<Tools>("tools_status"),

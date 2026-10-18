@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, brand, errText, type AiStatus, type Provider, type Tools } from "../lib/api";
+import { api, brand, errText, type AiStatus, type Provider, type Tools, type Voice } from "../lib/api";
 
 export default function Settings() {
   const [status, setStatus] = useState<AiStatus | null>(null);
@@ -9,16 +9,17 @@ export default function Settings() {
   const [key, setKey] = useState("");
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [voiceDefault, setVoiceDefault] = useState<Voice>({ gain_db: 0, auto: false });
 
   const refresh = () => {
     api.aiStatus().then(setStatus);
     api.tools().then(setTools);
-    api.settings().then((s) => { setProvider(s.provider); setKeySaved(!!s.api_key); });
+    api.settings().then((s) => { setProvider(s.provider); setKeySaved(!!s.api_key); setVoiceDefault(s.voice_default); });
   };
   useEffect(refresh, []);
 
-  const save = async (p: Provider, k: string | null) => {
-    try { await api.saveSettings(p, k); setKey(""); refresh(); setMsg({ text: "Saved." }); }
+  const save = async (p: Provider, k: string | null, vd?: Voice) => {
+    try { await api.saveSettings(p, k, vd); setKey(""); refresh(); setMsg({ text: "Saved." }); }
     catch (e) { setMsg({ text: errText(e), error: true }); }
   };
   const test = async () => {
@@ -50,6 +51,28 @@ export default function Settings() {
           <span className="muted small">Model: {status?.model}</span>
         </div>
         {msg && <p className={msg.error ? "error" : "ok"}>{msg.text}</p>}
+      </div>
+
+
+      <div className="card panel">
+        <h3>Voice level for new recordings</h3>
+        <div className="row">
+          <select value={voiceDefault.auto ? "auto" : voiceDefault.gain_db ? "gain" : "off"} onChange={(e) => {
+            const m = e.target.value;
+            const vd = m === "auto" ? { gain_db: 0, auto: true } : m === "gain" ? { gain_db: voiceDefault.gain_db || 3, auto: false } : { gain_db: 0, auto: false };
+            setVoiceDefault(vd); save(provider, null, vd);
+          }}>
+            <option value="off">Off</option>
+            <option value="auto">Auto level</option>
+            <option value="gain">Fixed gain</option>
+          </select>
+          {!voiceDefault.auto && voiceDefault.gain_db !== 0 && (
+            <input className="num" type="number" min={-12} max={12} step={1} value={voiceDefault.gain_db}
+              onChange={(e) => { const vd = { gain_db: Number(e.target.value), auto: false }; setVoiceDefault(vd); save(provider, null, vd); }} />
+          )}
+          {!voiceDefault.auto && voiceDefault.gain_db !== 0 && <span className="muted">dB</span>}
+        </div>
+        <p className="muted small">Applied when a recording is saved. The original audio is kept, so you can change it later in the player.</p>
       </div>
 
       <div className="card panel">

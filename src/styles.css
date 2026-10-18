@@ -112,3 +112,11 @@ nav button.on { background: var(--bg); border: 1px solid var(--line); }
 .bubble-err { color: #fff; font-size: 12px; text-align: center; padding: 20px; pointer-events: none; }
 
 @media (max-width: 980px) { .player-grid { grid-template-columns: 1fr; } }
+
+.voice input[type="range"] { flex: 1; min-width: 0; padding: 0; border: 0; background: none; accent-color: var(--accent); }
+.voice input[type="range"]:focus { outline: none; }
+.voice .db { flex: none; min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.readout { font-variant-numeric: tabular-nums; }
+.warn { color: #b26a00; }
+@media (prefers-color-scheme: dark) { .warn { color: #f5a524; } }
+audio.preview { width: 100%; }
