@@ -7,9 +7,15 @@ brand.json ──> scripts/brand.mjs ──> tauri.conf.json, package.json name,
                                 └──> Rust (include_str!) and UI (import) read it directly
 
 UI (React)  ──invoke──>  commands.rs
-                            ├── capture.rs     ffmpeg process per segment (avfoundation)
+                            ├── capture.rs     bundled ffmpeg process per segment (avfoundation)
                             ├── media.rs       probe, trim, cut render, captions, thumbnails
-                            ├── transcribe.rs  whisper-cli, word timings, model download
+                            ├── transcribe.rs  whisper.cpp compiled in (whisper-rs, Metal), chunked
+                            ├── edits.rs       edit plans: validate, diff, apply, undo
+                            ├── shorter.rs     sentence-level "make it shorter"
+                            ├── captions.rs    caption translation with kept timings
+                            ├── shorts.rs      9:16 shorts: clip picking, framing, ASS captions
+                            ├── importer.rs    file and YouTube import (bundled yt-dlp)
+                            ├── agent.rs       MCP + CLI tools (cli crate)
                             ├── cuts.rs        filler + silence cut planner (pure, tested)
                             ├── ai.rs          Claude: CLI or API provider, schemas, validation
                             ├── library.rs     folders, meta.json, transcript.json, SRT/VTT
@@ -25,7 +31,9 @@ UI (React)  ──invoke──>  commands.rs
 
 **Camera as a separate window.** The bubble is a round, always-on-top webview using getUserMedia, so it is captured with the screen and the user can drag it anywhere. The camera only runs while recording.
 
-**Transcripts with whisper-cli.** `whisper-cli -ml 1 -sow` returns one segment per word with millisecond offsets, which drives captions, filler detection and Claude's timestamps. Running the CLI keeps the build free of a C++ toolchain; bundling it as a Tauri sidecar is the next step for one-click installs.
+**Everything bundled.** ffmpeg and ffprobe (a static LGPL build with libass, built by `scripts/build-ffmpeg.sh` from pinned sources), cloudflared, yt-dlp and the agent CLI ship as Tauri sidecars in `Contents/MacOS`. `media::tool` finds them: a developer override env var, then a refreshed yt-dlp in app data, then the bundled copy; dev builds also look in `src-tauri/binaries` and PATH. Release builds never look at Homebrew.
+
+**Transcripts compiled in.** whisper.cpp runs inside the app through whisper-rs with Metal. Audio is decoded to 16 kHz samples by ffmpeg and processed in 10 minute chunks, so a 3 hour video does not need gigabytes of memory. One segment per word (`max_len 1`, `split_on_word`) drives captions, filler detection and Claude's timestamps. The model downloads once into app data and is checked against a pinned sha256.
 
 **Cuts.** `cuts.rs` turns filler words (from the transcript) and long silences (from ffmpeg `silencedetect`) into keep ranges. `media::render_keep` cuts video and audio with `trim`/`atrim` and joins them with `concat`, so both streams stay in sync. Edits keep `original.mp4` so they can be undone, and clear the transcript because the timings no longer match.
 

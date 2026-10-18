@@ -28,5 +28,5 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings &
 ## Good first areas
 
 - Windows and Linux capture in `src-tauri/src/capture.rs` (see ARCHITECTURE.md).
-- Bundling `whisper-cli` and `ffmpeg` as Tauri sidecars for one-click installs.
+- Windows and Linux entries in `scripts/fetch-sidecars.mjs` and `scripts/build-ffmpeg.sh`.
 - Single-window recording through ScreenCaptureKit.

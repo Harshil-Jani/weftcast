@@ -191,6 +191,12 @@ pub fn run() {
             commands::render_shorts,
             commands::reveal_path,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the app");
+        .build(tauri::generate_context!())
+        .expect("error while building the app")
+        .run(|app, event| {
+            // Quitting stops the public link, so no tunnel outlives the app.
+            if let tauri::RunEvent::Exit = event {
+                tauri::async_runtime::block_on(app.state::<AppState>().tunnel.stop());
+            }
+        });
 }

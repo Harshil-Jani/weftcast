@@ -115,7 +115,13 @@ async fn run(args: &[String]) -> anyhow::Result<()> {
                 "{}\nPress Ctrl+C to stop sharing.",
                 r["url"].as_str().unwrap_or_default()
             );
-            tokio::signal::ctrl_c().await?;
+            // Stop the tunnel on Ctrl+C or a plain kill, so no cloudflared is left running.
+            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            agent.call("stop_share", &json!({})).await?;
             return Ok(());
         }
         _ => {
