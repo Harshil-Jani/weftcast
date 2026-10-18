@@ -62,6 +62,13 @@ pub struct Video {
 }
 
 pub fn root() -> PathBuf {
+    // Developer override, e.g. RECORDER_LIBRARY=/tmp/empty (prefix = brand slug, upper case).
+    if let Some(p) = std::env::var_os(format!(
+        "{}_LIBRARY",
+        BRAND.slug.to_uppercase().replace('-', "_")
+    )) {
+        return PathBuf::from(p);
+    }
     let base = dirs::video_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(std::env::temp_dir);

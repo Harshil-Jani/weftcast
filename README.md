@@ -6,7 +6,7 @@ Record your screen and camera, get a link to share, and let Claude do the boring
 
 ## What it does
 
-- **Record** a display with your voice, plus a round camera bubble. Countdown, pause and resume, stop from the controls bar, the menu bar icon or **Alt+Shift+R**.
+- **Record** a display with your voice, plus a round camera bubble (small, medium or large, drag it anywhere). A floating pill picks the screen, microphone and camera; a large countdown, then pause, resume, stop or discard from the pill, the menu bar icon or **Option+Shift+R**.
 - **Library and player** with rename, delete, trim, captions, chapters and a clickable transcript.
 - **Local transcripts** with word timings (whisper.cpp, compiled in, Metal accelerated), captions in the player, SRT and VTT export, and an MP4 with captions.
 - **Claude writes** the title, summary and chapters from the transcript.
@@ -88,6 +88,26 @@ The same tool works without an agent: `cli list`, `cli transcript ID`, `cli plan
 
 The name, bundle identifier, tagline, accent colour and repo link live in one file: [`brand.json`](brand.json). Change it and run `npm run brand` (the dev and build scripts do this for you). `npm run check:brand` fails if the name is hardcoded anywhere else.
 
+## Keyboard shortcuts
+
+The app follows the macOS conventions and has a full menu bar.
+
+| Shortcut | Does |
+|---|---|
+| Command+N | New recording |
+| Option+Shift+R | Start or stop recording from any app |
+| Command+, | Settings |
+| Command+O | Import a video (Shorts) |
+| Command+E | Export the open video |
+| Shift+Command+S | Share the open video |
+| Command+1, 2, 3 | Library, Shorts, Shared |
+| Control+Command+S | Show or hide the sidebar |
+| Option+Command+I | Show or hide the inspector |
+| Space or K | Play and pause |
+| J and L (or the arrow keys) | Back and forward 5 seconds |
+
+Right-click a video in the library for Open, Copy Link, Show in Finder, Make Shorts and Delete.
+
 ## Development
 
 ```bash
@@ -96,6 +116,11 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings &
 cargo run --example smoke -- --record 10      # record, transcribe, ask Claude, serve, without the UI
 cargo run --example smoke -- --file demo.mp4  # same, on an existing video
 ```
+
+Two developer overrides (prefix = the brand slug in upper case) help with testing and screenshots:
+`RECORDER_LIBRARY=/some/folder` uses another library (an empty folder shows the empty state), and
+`RECORDER_APPEARANCE=light` or `dark` forces the window appearance without changing the system setting.
+Design tokens live in `src/styles/tokens.css`; shared controls in `src/components/ui.tsx`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/FEATURES.md](docs/FEATURES.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -1,0 +1,102 @@
+/* Design tokens: the only place colours, type, spacing, radii and motion are defined.
+   Values follow macOS semantic colours and text styles. --accent comes from brand.json
+   (set on <html> at startup); everything accent-derived is computed from it, so a new
+   brand colour keeps its contrast variants. */
+:root {
+  color-scheme: light dark;
+  --accent: #6d5efc;
+  /* White text on the fill and accent text on the content background both clear 4.5:1. */
+  --accent-fill: color-mix(in oklab, var(--accent) 86%, black);
+  --accent-text: color-mix(in oklab, var(--accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --focus: color-mix(in srgb, var(--accent) 55%, transparent);
+
+  /* Surfaces */
+  --window: #ececec;           /* behind the sidebar when vibrancy is off */
+  --content: #ffffff;          /* main content area */
+  --raised: #ffffff;           /* sheets */
+  --group: #f5f5f7;            /* grouped form sections */
+  --fill: rgba(0, 0, 0, 0.05); /* segmented track, hovered rows */
+  --fill-strong: rgba(0, 0, 0, 0.09);
+  --control: #ffffff;
+  --control-edge: rgba(0, 0, 0, 0.16);
+  --field: #ffffff;
+  --segment-on: #ffffff;
+  --field-edge: rgba(0, 0, 0, 0.18);
+  --separator: rgba(0, 0, 0, 0.1);
+  --scrim: rgba(0, 0, 0, 0.18);
+  --media: #000000;
+
+  /* Text (all pass 4.5:1 on --content and --group) */
+  --label: #1d1d1f;
+  --label-2: #636366;
+  --label-3: #8e8e93;          /* icons and disabled only, never body text */
+  --on-accent: #ffffff;
+  --red: #c4001a;
+  --green: #1f7a35;
+  --orange: #b13500;
+  --recording: #ff3b30;
+
+  /* Type: Apple text styles */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --t-large: 600 26px/32px var(--font);
+  --t-title1: 600 22px/28px var(--font);
+  --t-title2: 600 17px/22px var(--font);
+  --t-title3: 600 15px/20px var(--font);
+  --t-headline: 600 13px/16px var(--font);
+  --t-body: 400 13px/18px var(--font);
+  --t-callout: 400 12px/16px var(--font);
+  --t-caption: 400 11px/14px var(--font);
+  --t-caption2: 500 11px/13px var(--font);  /* Apple's 10pt, raised to the 11px legibility floor */
+
+  /* 8pt grid */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px;
+  --r-control: 6px; --r-card: 8px; --r-group: 10px; --r-sheet: 12px;
+  --h-small: 22px; --h-large: 28px;
+  --toolbar: 52px;
+  --sidebar: 216px;
+  --inspector: 320px;
+
+  --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 8px 28px rgba(0, 0, 0, 0.18);
+  --shadow-float: 0 0 0 0.5px rgba(0, 0, 0, 0.18), 0 10px 30px rgba(0, 0, 0, 0.28);
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 150ms;
+  --slow: 240ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-text: color-mix(in oklab, var(--accent) 62%, white);
+    --window: #2a2a2c;
+    --content: #1e1e1e;
+    --raised: #2c2c2e;
+    --group: #262628;
+    --fill: rgba(255, 255, 255, 0.07);
+    --fill-strong: rgba(255, 255, 255, 0.12);
+    --control: rgba(255, 255, 255, 0.14);
+    --control-edge: rgba(255, 255, 255, 0.06);
+    --field: rgba(255, 255, 255, 0.05);
+    --segment-on: rgba(255, 255, 255, 0.22);
+    --field-edge: rgba(255, 255, 255, 0.14);
+    --separator: rgba(255, 255, 255, 0.1);
+    --scrim: rgba(0, 0, 0, 0.4);
+
+    --label: #f5f5f7;
+    --label-2: #a1a1a6;
+    --label-3: #7c7c80;
+    --red: #ff6961;
+    --green: #32d74b;
+    --orange: #ff9f0a;
+
+    --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.3);
+    --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.5);
+    --shadow-float: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 10px 30px rgba(0, 0, 0, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --slow: 0ms; }
+}

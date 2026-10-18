@@ -1,21 +1,20 @@
 import { useEffect, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { CircleCheck, CircleDashed } from "lucide-react";
 import { api, brand, errText, type AiStatus, type Provider, type Tools, type Voice, type WhisperModel } from "../lib/api";
+import { Button, Group, Icon, Row, Segmented, Sheet, Slider, TaskStatus, type Status } from "../components/ui";
 
-export default function Settings() {
+type VoiceMode = "off" | "auto" | "gain";
+
+export default function Settings({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [tools, setTools] = useState<Tools | null>(null);
   const [provider, setProvider] = useState<Provider>("cli");
   const [keySaved, setKeySaved] = useState(false);
   const [key, setKey] = useState("");
-  const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [modelFile, setModelFile] = useState("");
-  const [busy, setBusy] = useState("");
-  const act = async (label: string, fn: () => Promise<void>, done?: string) => {
-    setBusy(label); setMsg(null);
-    try { await fn(); refresh(); if (done) setMsg({ text: done }); } catch (e) { setMsg({ text: errText(e), error: true }); } finally { setBusy(""); }
-  };
   const [voiceDefault, setVoiceDefault] = useState<Voice>({ gain_db: 0, auto: false });
+  const [task, setTask] = useState<{ at: string; label: string } | null>(null);
+  const [msg, setMsg] = useState<{ at: string } & NonNullable<Status> | null>(null);
 
   const refresh = () => {
     api.aiStatus().then(setStatus);
@@ -24,101 +23,108 @@ export default function Settings() {
   };
   useEffect(refresh, []);
 
-  const save = async (p: Provider, k: string | null, vd?: Voice) => {
-    try { await api.saveSettings(p, k, vd); setKey(""); refresh(); setMsg({ text: "Saved." }); }
-    catch (e) { setMsg({ text: errText(e), error: true }); }
+  const act = async (at: string, label: string, fn: () => Promise<string | void>) => {
+    setTask({ at, label }); setMsg(null);
+    try { const done = await fn(); refresh(); if (done) setMsg({ at, text: done }); }
+    catch (e) { setMsg({ at, text: errText(e), error: true }); }
+    finally { setTask(null); }
   };
-  const test = async () => {
-    setTesting(true); setMsg(null);
-    try { setMsg({ text: await api.testClaude() }); } catch (e) { setMsg({ text: errText(e), error: true }); }
-    finally { setTesting(false); }
+  const report = (at: string) => ({ busy: task?.at === at ? task.label : undefined, status: msg?.at === at ? msg : null });
+  const save = (p: Provider, k: string | null, vd?: Voice) => act("claude", "Saving", async () => { await api.saveSettings(p, k, vd); setKey(""); return "Saved."; });
+
+  const mode: VoiceMode = voiceDefault.auto ? "auto" : voiceDefault.gain_db ? "gain" : "off";
+  const setMode = (m: VoiceMode) => {
+    const vd = m === "auto" ? { gain_db: 0, auto: true } : m === "gain" ? { gain_db: voiceDefault.gain_db || 3, auto: false } : { gain_db: 0, auto: false };
+    setVoiceDefault(vd); api.saveSettings(provider, null, vd);
+  };
+  const cli = !status?.cli_installed ? "Not installed. Install Claude Code and run claude once to sign in."
+    : status.cli_logged_in === false ? `Found ${status.cli_version}, not signed in. Run claude once in Terminal.` : `Found ${status.cli_version}, signed in.`;
+
+  const installModel = async () => {
+    const path = await openDialog({ multiple: false, filters: [{ name: "Speech model", extensions: ["bin"] }] });
+    if (typeof path === "string") act("model", "Installing the model", async () => { await api.installModel(path, path.includes("small") ? "small_en" : "base_en"); return "Model installed."; });
   };
 
   return (
-    <div className="settings">
-      <h1 className="page-title">Settings</h1>
-
-      <div className="card panel">
-        <h3>Claude</h3>
-        <p className="muted small">{brand.name} never sees your Claude login. It either asks your own installed Claude Code, or uses an API key you provide.</p>
-        <label className="check"><input type="radio" checked={provider === "cli"} onChange={() => { setProvider("cli"); save("cli", null); }} />
-          Use my Claude Code login (the <code>claude</code> command)</label>
-        <p className="small status">{!status?.cli_installed ? "claude is not installed. Install Claude Code and run `claude` once to sign in." : status.cli_logged_in === false ? `Found ${status.cli_version}, but it is not signed in. Run \`claude\` once in Terminal.` : `Found ${status.cli_version}, signed in.`}</p>
-        <label className="check"><input type="radio" checked={provider === "api"} onChange={() => { setProvider("api"); save("api", null); }} />
-          Use an Anthropic API key</label>
-        {provider === "api" && (
-          <div className="row">
-            <input type="password" value={key} placeholder={keySaved ? "A key is saved" : status?.api_key_set ? "Using ANTHROPIC_API_KEY" : "sk-ant-..."} onChange={(e) => setKey(e.target.value)} />
-            <button onClick={() => save("api", key)}>Save in Keychain</button>
-            {keySaved && <button className="ghost" onClick={() => api.forgetKey().then(refresh)}>Forget key</button>}
-          </div>
-        )}
-        <div className="row">
-          <button className="primary" disabled={testing} onClick={test}>{testing ? "Testing..." : "Test connection"}</button>
-          <span className="muted small">Model: {status?.model}</span>
-        </div>
-        {msg && <p className={msg.error ? "error" : "ok"}>{msg.text}</p>}
-      </div>
-
-
-      <div className="card panel">
-        <h3>Voice level for new recordings</h3>
-        <div className="row">
-          <select value={voiceDefault.auto ? "auto" : voiceDefault.gain_db ? "gain" : "off"} onChange={(e) => {
-            const m = e.target.value;
-            const vd = m === "auto" ? { gain_db: 0, auto: true } : m === "gain" ? { gain_db: voiceDefault.gain_db || 3, auto: false } : { gain_db: 0, auto: false };
-            setVoiceDefault(vd); save(provider, null, vd);
-          }}>
-            <option value="off">Off</option>
-            <option value="auto">Auto level</option>
-            <option value="gain">Fixed gain</option>
-          </select>
-          {!voiceDefault.auto && voiceDefault.gain_db !== 0 && (
-            <input className="num" type="number" min={-12} max={12} step={1} value={voiceDefault.gain_db}
-              onChange={(e) => { const vd = { gain_db: Number(e.target.value), auto: false }; setVoiceDefault(vd); save(provider, null, vd); }} />
+    <Sheet title="Settings" wide onClose={onClose} footer={<Button large kind="primary" onClick={onClose}>Done</Button>}>
+      <div>
+        <h3 className="section-head">Claude</h3>
+        <Group>
+          <Row label="Connect with">
+            <Segmented label="Connect Claude with" value={provider} onChange={(p) => { setProvider(p); save(p, null); }}
+              options={[{ value: "cli", label: "Claude Code" }, { value: "api", label: "API Key" }]} />
+          </Row>
+          {provider === "cli" ? (
+            <Row label="Claude Code" detail={status ? cli : "Checking..."} />
+          ) : (
+            <Row label="API key" detail={keySaved ? "Saved in the Keychain." : status?.api_key_set ? "Using ANTHROPIC_API_KEY from the environment." : "Stored in the macOS Keychain, never in a file."}>
+              <input className="field" type="password" style={{ width: 180 }} value={key} placeholder={keySaved ? "Replace key" : "sk-ant-"} aria-label="Anthropic API key" onChange={(e) => setKey(e.target.value)} />
+              <Button disabled={!key.trim()} onClick={() => save("api", key)}>Save</Button>
+              {keySaved && <Button kind="destructive" onClick={() => act("claude", "Forgetting", async () => { await api.forgetKey(); return "Key removed from the Keychain."; })}>Forget</Button>}
+            </Row>
           )}
-          {!voiceDefault.auto && voiceDefault.gain_db !== 0 && <span className="muted">dB</span>}
-        </div>
-        <p className="muted small">Applied when a recording is saved. The original audio is kept, so you can change it later in the player.</p>
+          <Row label="Model" detail={status?.model}>
+            <Button disabled={!!task} onClick={() => act("claude", "Testing", () => api.testClaude())}>Test Connection</Button>
+          </Row>
+        </Group>
+        <p className="section-foot">{brand.name} never sees your Claude login. It asks your own installed Claude Code, or uses an API key you provide.</p>
+        <div className="after"><TaskStatus {...report("claude")} /></div>
       </div>
 
-      <div className="card panel">
-        <h3>This computer</h3>
-        <ul className="checks">
-          <Check ok={tools?.ffmpeg} label="Recording and editing engine (bundled)" />
-          <Check ok={tools?.captions_burn} label="Burned-in captions (bundled)" />
-          <Check ok={tools?.cloudflared} label="Public links (bundled)" />
-          <Check ok={tools?.ytdlp} label="YouTube importer (bundled)" />
-          <Check ok={tools?.model} label={`Speech model ${tools?.model ? "installed" : `(downloads on first transcript, about ${tools?.model_mb ?? 150} MB)`}`} />
-        </ul>
-        <div className="row wrap">
-          <span>Speech model</span>
-          <select value={tools?.model_name ?? "base_en"} onChange={(e) => api.saveSettings(provider, null, undefined, { whisperModel: e.target.value as WhisperModel }).then(refresh)}>
-            <option value="base_en">Base (English, about 150 MB, faster)</option>
-            <option value="small_en">Small (English, about 490 MB, more accurate)</option>
-          </select>
-        </div>
-        <div className="row">
-          <input value={modelFile} onChange={(e) => setModelFile(e.target.value)} placeholder="Offline install: path to ggml-base.en.bin or ggml-small.en.bin" />
-          <button disabled={!modelFile.trim() || !!busy} onClick={() => act("Installing model", async () => {
-            await api.installModel(modelFile.trim(), modelFile.includes("small") ? "small_en" : "base_en"); setModelFile("");
-          }, "Model installed.")}>Install</button>
-        </div>
-        <div className="row">
-          <button disabled={!!busy} onClick={() => act("Updating", async () => setMsg({ text: `YouTube importer updated to ${await api.updateYoutube()}.` }))}>Update YouTube importer</button>
-          {busy && <span className="muted small">{busy}...</span>}
-        </div>
-        <p className="muted small">Library folder: <code>{tools?.library}</code></p>
-        <div className="row wrap">
-          <button onClick={() => api.privacy("screen")}>Screen Recording permission</button>
-          <button onClick={() => api.privacy("microphone")}>Microphone permission</button>
-          <button onClick={() => api.privacy("camera")}>Camera permission</button>
-        </div>
+      <div>
+        <h3 className="section-head">New Recordings</h3>
+        <Group>
+          <Row label="Voice level" detail="Applied when a recording is saved. The original audio is kept.">
+            <Segmented label="Voice level" value={mode} onChange={setMode} options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" }, { value: "gain", label: "Fixed" }]} />
+          </Row>
+          {mode === "gain" && (
+            <Row block label={<span className="hstack"><span className="spacer">Gain</span><b className="num">{voiceDefault.gain_db > 0 ? "+" : ""}{voiceDefault.gain_db} dB</b></span>}>
+              <Slider label="Default gain" min={-12} max={12} value={voiceDefault.gain_db} ticks={["-12", "-6", "0", "+6", "+12"]}
+                onChange={(g) => { const vd = { gain_db: g || 1, auto: false }; setVoiceDefault(vd); api.saveSettings(provider, null, vd); }} />
+            </Row>
+          )}
+        </Group>
       </div>
-    </div>
+
+      <div>
+        <h3 className="section-head">Transcription</h3>
+        <Group>
+          <Row label="Speech model" detail={tools?.model ? "Installed. Runs on this Mac." : `Downloads on first use, about ${tools?.model_mb ?? 150} MB.`}>
+            <Segmented label="Speech model" value={tools?.model_name ?? "base_en"} onChange={(m: WhisperModel) => api.saveSettings(provider, null, undefined, { whisperModel: m }).then(refresh)}
+              options={[{ value: "base_en", label: "Base", title: "English, about 150 MB, faster" }, { value: "small_en", label: "Small", title: "English, about 490 MB, more accurate" }]} />
+          </Row>
+          <Row label="Offline install" detail="Use a ggml-base.en.bin or ggml-small.en.bin you already have.">
+            <Button disabled={!!task} onClick={installModel}>Choose File{"…"}</Button>
+          </Row>
+        </Group>
+        <div className="after"><TaskStatus {...report("model")} /></div>
+      </div>
+
+      <div>
+        <h3 className="section-head">This Mac</h3>
+        <Group>
+          <Check ok={tools?.ffmpeg} label="Recording and editing engine" />
+          <Check ok={tools?.captions_burn} label="Burned-in captions" />
+          <Check ok={tools?.cloudflared} label="Public links" />
+          <Check ok={tools?.ytdlp} label="YouTube importer">
+            <Button disabled={!!task} onClick={() => act("tools", "Updating", async () => `YouTube importer updated to ${await api.updateYoutube()}.`)}>Update</Button>
+          </Check>
+          <Row label="Library" detail={<span className="mono selectable">{tools?.library}</span>} />
+          <Row label="Permissions" detail="Opens the matching pane in System Settings.">
+            <Button onClick={() => api.privacy("screen")}>Screen</Button>
+            <Button onClick={() => api.privacy("microphone")}>Microphone</Button>
+            <Button onClick={() => api.privacy("camera")}>Camera</Button>
+          </Row>
+        </Group>
+        <div className="after"><TaskStatus {...report("tools")} /></div>
+      </div>
+    </Sheet>
   );
 }
 
-function Check({ ok, label }: { ok?: boolean; label: string }) {
-  return <li className={ok ? "yes" : "no"}>{ok ? "✓" : "○"} {label}</li>;
+function Check({ ok, label, children }: { ok?: boolean; label: string; children?: React.ReactNode }) {
+  return (
+    <Row label={<span className="hstack"><span className={ok ? "ok" : "secondary"}><Icon as={ok ? CircleCheck : CircleDashed} label={ok ? "Ready" : "Missing"} /></span>{label}</span>}
+      detail={ok ? "Bundled" : "Not found"}>{children}</Row>
+  );
 }

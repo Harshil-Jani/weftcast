@@ -1,204 +1,389 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { aiReady, api, base, errText, mmss, type AiStatus, type Answer, type CutOptions, type CutPlan, type VideoDetail } from "../lib/api";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { Captions, ChevronLeft, Download, Ellipsis, Info, Link2, Maximize, PanelRight, Pause, Play, Sparkles } from "lucide-react";
+import { aiReady, api, base, brand, errText, isTyping, mmss, toProgress, type AiStatus, type Answer, type CutOptions, type CutPlan, type Progress, type VideoDetail } from "../lib/api";
+import { Button, CopyRow, Icon, IconButton, Row, Group, Segmented, Sheet, TaskStatus, Toggle, type Status } from "../components/ui";
+import { useCommand, type Command } from "../lib/recording";
 import VoicePanel from "./VoicePanel";
 import { MakeShorter, PromptEdit, TranslateCaptions } from "./AiPanels";
 
-type Props = { id: string; onBack: () => void; onDeleted: () => void; onOpen: (id: string) => void };
+type Props = { id: string; command: Command; onBack: () => void; onDeleted: () => void; onOpen: (id: string) => void };
+type Tab = "transcript" | "chapters" | "edit" | "voice";
 const DEFAULT_CUTS: CutOptions = { remove_fillers: true, remove_silences: true, min_silence: 0.8, pad: 0.2 };
 
-export default function Player({ id, onBack, onDeleted, onOpen }: Props) {
-  const [capLang, setCapLang] = useState("en");
-  const [langNames, setLangNames] = useState<Record<string, string>>({});
-  const [ai, setAi] = useState<AiStatus | null>(null);
+/** Runs one action at a time for this video and reports busy, progress and the result under the section that started it. */
+export type Run = (at: string, label: string, fn: () => Promise<unknown>, done?: string) => Promise<void>;
+export type Task = { at: string; label: string } | null;
+export type Report = (at: string) => { busy?: string; progress?: Progress; status?: Status };
+
+const stored = () => { try { return localStorage.getItem("inspector") !== "0"; } catch { return true; } };
+
+export default function Player({ id, command, onBack, onDeleted, onOpen }: Props) {
   const [d, setD] = useState<VideoDetail | null>(null);
   const [srv, setSrv] = useState("");
-  const [busy, setBusy] = useState("");
-  const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
-  const [progress, setProgress] = useState("");
+  const [ai, setAi] = useState<AiStatus | null>(null);
+  const [langNames, setLangNames] = useState<Record<string, string>>({});
+  const [capLang, setCapLang] = useState("en");
+  const [task, setTask] = useState<Task>(null);
+  const [progress, setProgress] = useState<Progress>(null);
+  const [status, setStatus] = useState<(Status & { at: string }) | null>(null);
   const [now, setNow] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [title, setTitle] = useState("");
-  const [publicUrl, setPublicUrl] = useState<string | null>(null);
-  const [cutOpts, setCutOpts] = useState(DEFAULT_CUTS);
-  const [plan, setPlan] = useState<CutPlan | null>(null);
-  const [trim, setTrim] = useState<[number, number] | null>(null);
-  const [q, setQ] = useState("");
-  const [answer, setAnswer] = useState<Answer | null>(null);
+  const [tab, setTab] = useState<Tab>("transcript");
+  const [inspector, setInspector] = useState(stored);
+  const [sharing, setSharing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
 
   const load = useCallback(() => api.get(id).then((x) => { setD(x); setTitle(x.video.title); }), [id]);
   useEffect(() => {
     load();
     base().then(setSrv);
-    api.shareStatus().then(setPublicUrl);
     api.languages().then((l) => setLangNames(Object.fromEntries(l)));
     api.aiStatus().then(setAi);
     const off = listen<{ id: string; stage: string; done: number; total: number }>("progress", (e) => {
-      if (e.payload.id !== id) return;
-      const { stage, done, total } = e.payload;
-      setProgress(stage === "done" ? "" : total ? `${stage} ${Math.round((done / total) * 100)}%` : `${stage}...`);
+      if (e.payload.id === id) setProgress(toProgress(e.payload));
     });
     return () => { off.then((f) => f()); };
   }, [id, load]);
 
-  if (!d) return <p className="muted">Loading...</p>;
+  const toggleInspector = useCallback(() => setInspector((s) => { try { localStorage.setItem("inspector", s ? "0" : "1"); } catch { /* not persisted */ } return !s; }), []);
+  useCommand(command, (name) => {
+    if (name === "toggle-inspector") toggleInspector();
+    if (name === "export") setExporting(true);
+    if (name === "share") setSharing(true);
+  });
+
+  // Space or K plays and pauses, J and L jump 5 seconds, like most editors.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = video.current;
+      if (!el || isTyping(e.target) || e.metaKey || e.ctrlKey || document.querySelector(".scrim")) return;
+      const k = e.key.toLowerCase();
+      if (k === " " || k === "k") { e.preventDefault(); if (el.paused) el.play(); else el.pause(); }
+      else if (k === "j" || k === "arrowleft") { e.preventDefault(); el.currentTime = Math.max(0, el.currentTime - 5); }
+      else if (k === "l" || k === "arrowright") { e.preventDefault(); el.currentTime = Math.min(el.duration || 0, el.currentTime + 5); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+
+  if (!d) {
+    return (
+      <>
+        <div className="toolbar" data-tauri-drag-region><IconButton icon={ChevronLeft} label="Back to Library" onClick={onBack} /></div>
+        <div className="empty"><span className="spinner" aria-label="Loading" /></div>
+      </>
+    );
+  }
   const v = d.video;
   const src = `${srv}/raw/${v.share_id}.mp4?d=${v.duration}`;
-  const localLink = `${srv}/v/${v.share_id}`;
-  const publicLink = publicUrl ? `${publicUrl}/v/${v.share_id}` : null;
 
-  const run = async (label: string, fn: () => Promise<unknown>, done?: string) => {
-    setBusy(label); setMsg(null);
-    try { await fn(); await load(); if (done) setMsg({ text: done }); }
-    catch (e) { setMsg({ text: errText(e), error: true }); }
-    finally { setBusy(""); setProgress(""); }
+  const run: Run = async (at, label, fn, done) => {
+    setTask({ at, label }); setStatus(null); setProgress(null);
+    try { await fn(); await load(); if (done) setStatus({ at, text: done }); }
+    catch (e) { setStatus({ at, text: errText(e), error: true }); }
+    finally { setTask(null); setProgress(null); }
   };
+  const report: Report = (at) => ({
+    busy: task?.at === at ? task.label : undefined,
+    progress: task?.at === at ? progress : null,
+    status: status?.at === at ? status : null,
+  });
+  const busy = !!task;
   const seek = (s: number) => { if (video.current) { video.current.currentTime = s; video.current.play(); } };
   const activeCue = d.cues.findIndex(([a, b]) => now >= a && now < b + 0.3);
+  const ready = aiReady(ai);
+
+  const more = async () => {
+    const menu = await Menu.new({
+      items: [
+        { id: "finder", text: "Show in Finder", action: () => api.reveal(id) },
+        { id: "restore", text: "Restore Original", enabled: d.has_original && !busy, action: () => run("toolbar", "Restoring", () => api.restore(id), "Original restored.") },
+        { id: "undo", text: "Undo Last Edit", enabled: d.can_undo && !busy, action: () => run("toolbar", "Undoing", () => api.undoEdit(id), "Last edit undone.") },
+        await PredefinedMenuItem.new({ item: "Separator" }),
+        { id: "delete", text: "Delete…", action: async () => {
+          if (await ask(`"${v.title}" and its transcript will be removed from this Mac. This can't be undone.`, { title: "Delete this recording?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" })) {
+            await api.remove(id); onDeleted();
+          }
+        } },
+      ],
+    });
+    await menu.popup();
+  };
+
+  const captionsMenu = async () => {
+    const pick = (lang: string) => {
+      setCapLang(lang);
+      const tracks = video.current?.textTracks;
+      if (tracks) for (const t of Array.from(tracks)) t.mode = lang !== "off" && t.language === lang ? "showing" : "hidden";
+    };
+    const langs = [["en", "English"], ...v.caption_langs.map((l) => [l, langNames[l] ?? l]), ["off", "Off"]];
+    const menu = await Menu.new({ items: langs.map(([code, name]) => ({ id: `cc-${code}`, text: name, checked: capLang === code, action: () => pick(code) })) });
+    await menu.popup();
+  };
 
   return (
-    <div className="player">
-      <div className="row between">
-        <button className="ghost" onClick={onBack}>← Library</button>
-        <div className="row">
-          <button onClick={() => api.reveal(id)}>Show in Finder</button>
-          <button className="danger" onClick={() => { if (confirm("Delete this recording for good?")) run("delete", async () => { await api.remove(id); onDeleted(); }); }}>Delete</button>
-        </div>
+    <>
+      <div className="toolbar" data-tauri-drag-region>
+        <IconButton icon={ChevronLeft} label="Back to Library" onClick={onBack} />
+        <input className="field title-field" aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setTitle(v.title); e.currentTarget.blur(); } }}
+          onBlur={() => title.trim() && title !== v.title && run("toolbar", "Renaming", () => api.rename(id, title.trim()))} />
+        <span className="spacer" data-tauri-drag-region />
+        <TaskStatus {...report("toolbar")} />
+        <Button icon={Link2} onClick={() => setSharing(true)} title="Share (Shift Command S)">Share</Button>
+        <IconButton icon={Download} label="Export (Command E)" onClick={() => setExporting(true)} />
+        <IconButton icon={Ellipsis} label="More" onClick={more} />
+        <span className="sep" />
+        <IconButton icon={PanelRight} label="Toggle Inspector (Option Command I)" pressed={inspector} onClick={toggleInspector} />
       </div>
 
-      <div className="player-grid">
-        <section>
-          <video ref={video} key={src} src={srv ? src : undefined} controls poster={srv ? `${srv}/thumb/${v.share_id}.jpg?d=${v.duration}` : undefined}
-            onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} crossOrigin="anonymous">
-            {d.cues.length > 0 && <track kind="captions" label="English" srcLang="en" default={capLang === "en"} src={`${srv}/captions/${v.share_id}.vtt?d=${v.duration}`} />}
-            {v.caption_langs.map((l) => <track key={l} kind="captions" label={langNames[l] ?? l} srcLang={l} default={capLang === l} src={`${srv}/captions/${v.share_id}.vtt?lang=${l}&d=${v.duration}`} />)}
-          </video>
-          {v.caption_langs.length > 0 && (
-            <div className="row caption-picker">
-              <span className="muted small">Captions</span>
-              <select value={capLang} onChange={(e) => {
-                setCapLang(e.target.value);
-                const tracks = video.current?.textTracks;
-                if (tracks) for (const t of Array.from(tracks)) t.mode = e.target.value !== "off" && t.language === e.target.value ? "showing" : "hidden";
-              }}>
-                <option value="en">English</option>
-                {v.caption_langs.map((l) => <option key={l} value={l}>{langNames[l] ?? l}</option>)}
-                <option value="off">Off</option>
-              </select>
-            </div>
-          )}
-          <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => title !== v.title && run("rename", () => api.rename(id, title))} />
-          <p className="muted small">{mmss(v.duration)} · {new Date(v.created_at).toLocaleString()}{v.edited ? " · edited" : ""}</p>
-          {v.summary && <p className="summary">{v.summary}</p>}
-          {msg && <p className={msg.error ? "error" : "ok"}>{msg.text}</p>}
-          {(busy || progress) && <p className="muted">{progress || `${busy}...`}</p>}
-
-          {ai && !aiReady(ai) && (
-            <p className="card notice">Claude isn't connected, so the AI buttons (titles, prompt edits, shorter versions, translations, questions) won't work yet. Everything else does. Connect your Claude Code login or an API key in Settings.</p>
-          )}
-          <div className="actions">
-            <PromptEdit video={v} busy={busy} run={run} canUndo={d.can_undo} />
-            <MakeShorter video={v} busy={busy} run={run} seek={seek} onCreated={(s) => onOpen(s.id)} />
-
-            <Panel title="Transcript and AI">
-              {!v.has_transcript
-                ? <button className="primary" disabled={!!busy} onClick={() => run("Transcribing", () => api.transcribe(id), "Transcript ready.")}>Transcribe (on this computer)</button>
-                : <button className="primary" disabled={!!busy} onClick={() => run("Claude is writing", () => api.insights(id), "Title, summary and chapters updated.")}>Write title, summary and chapters</button>}
-              {v.has_transcript && <button disabled={!!busy} onClick={() => run("Transcribing", () => api.transcribe(id), "Transcript refreshed.")}>Transcribe again</button>}
-              {v.has_transcript && <TranslateCaptions video={v} busy={busy} run={run} />}
-            </Panel>
-
-            <VoicePanel video={v} player={video} onSaved={() => { load(); setMsg({ text: "Voice applied to shares and exports." }); }} />
-
-            <Panel title="Remove ums and silences">
-              <label className="check"><input type="checkbox" checked={cutOpts.remove_fillers} onChange={(e) => { setCutOpts({ ...cutOpts, remove_fillers: e.target.checked }); setPlan(null); }} /> Filler words (um, uh)</label>
-              <label className="check"><input type="checkbox" checked={cutOpts.remove_silences} onChange={(e) => { setCutOpts({ ...cutOpts, remove_silences: e.target.checked }); setPlan(null); }} /> Pauses longer than
-                <input className="num" type="number" step="0.1" min="0.3" value={cutOpts.min_silence} onChange={(e) => { setCutOpts({ ...cutOpts, min_silence: Number(e.target.value) }); setPlan(null); }} />s</label>
-              <div className="row">
-                <button disabled={!!busy} onClick={() => run("Finding cuts", async () => setPlan(await api.planCuts(id, cutOpts)))}>Preview</button>
-                {plan && plan.removed.length > 0 && <button className="primary" disabled={!!busy} onClick={() => run("Cutting", async () => { await api.applyCuts(id, cutOpts); setPlan(null); }, "Done. Transcribe again to refresh captions.")}>Apply</button>}
-              </div>
-              {plan && (
-                <div className="plan">
-                  <p>{plan.removed.length ? `${plan.removed.length} cuts: ${mmss(plan.original)} → ${mmss(plan.result)}` : "Nothing to remove."}</p>
-                  <ul>{plan.removed.slice(0, 12).map(([r, why], i) => <li key={i}><a onClick={() => seek(Math.max(0, r.start - 1))}>{mmss(r.start)}</a> {why}</li>)}</ul>
-                </div>
-              )}
-            </Panel>
-
-            <Panel title="Trim">
-              {!trim ? <button onClick={() => setTrim([0, v.duration])}>Trim start and end</button> : (
-                <>
-                  <div className="row">
-                    <span>Start</span><input className="num" type="number" step="0.1" value={trim[0].toFixed(1)} onChange={(e) => setTrim([Number(e.target.value), trim[1]])} />
-                    <button onClick={() => setTrim([now, trim[1]])}>Use playhead</button>
-                  </div>
-                  <div className="row">
-                    <span>End</span><input className="num" type="number" step="0.1" value={trim[1].toFixed(1)} onChange={(e) => setTrim([trim[0], Number(e.target.value)])} />
-                    <button onClick={() => setTrim([trim[0], now])}>Use playhead</button>
-                  </div>
-                  <div className="row">
-                    <button onClick={() => setTrim(null)}>Cancel</button>
-                    <button className="primary" disabled={!!busy} onClick={() => run("Trimming", async () => { await api.trim(id, trim[0], trim[1]); setTrim(null); }, "Trimmed.")}>Apply trim</button>
-                  </div>
-                </>
-              )}
-              {d.has_original && <button disabled={!!busy} onClick={() => run("Restoring", () => api.restore(id), "Original restored.")}>Restore original</button>}
-            </Panel>
-
-            <Panel title="Share">
-              <div className="row"><code className="link">{localLink}</code><button onClick={() => writeText(localLink)}>Copy</button></div>
-              {publicLink ? (
-                <>
-                  <div className="row"><code className="link">{publicLink}</code><button onClick={() => writeText(publicLink)}>Copy</button></div>
-                  <p className="muted small">Works while this app is running. Anyone with the link can watch.</p>
-                  <button onClick={() => run("Stopping", async () => { await api.shareStop(); setPublicUrl(null); })}>Stop public link</button>
-                </>
-              ) : (
-                <button className="primary" disabled={!!busy} onClick={() => run("Opening a public link", async () => { const u = await api.shareStart(); setPublicUrl(u); await writeText(`${u}/v/${v.share_id}`); }, "Public link copied.")}>Get public link</button>
-              )}
-              <label className="check"><input type="checkbox" checked={v.public_questions} onChange={(e) => run("Saving", () => api.setPublicQuestions(id, e.target.checked))} /> Let viewers ask the video questions (uses your Claude)</label>
-            </Panel>
-
-            <Panel title="Export to Downloads">
-              <div className="row wrap">
-                <button disabled={!!busy} onClick={() => run("Exporting", () => api.exportVideo(id, "mp4"), "Saved to Downloads.")}>MP4</button>
-                <button disabled={!!busy || !v.has_transcript} onClick={() => run("Exporting", async () => { const r = await api.exportVideo(id, "captioned"); if (r.note) setMsg({ text: r.note }); })}>MP4 with captions</button>
-                <button disabled={!v.has_transcript} onClick={() => run("Exporting", () => api.exportVideo(id, "srt"), "Saved to Downloads.")}>SRT</button>
-                <button disabled={!v.has_transcript} onClick={() => run("Exporting", () => api.exportVideo(id, "vtt"), "Saved to Downloads.")}>VTT</button>
-              </div>
-            </Panel>
+      <div className={`player ${inspector ? "" : "no-inspector"}`}>
+        <div className="stage">
+          <div className="video-wrap">
+            <video ref={video} key={src} src={srv ? src : undefined} crossOrigin="anonymous" playsInline
+              poster={srv ? `${srv}/thumb/${v.share_id}.jpg?d=${v.duration}` : undefined}
+              onClick={(e) => { const el = e.currentTarget; if (el.paused) el.play(); else el.pause(); }}
+              onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+              onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)}>
+              {d.cues.length > 0 && <track kind="captions" label="English" srcLang="en" default={capLang === "en"} src={`${srv}/captions/${v.share_id}.vtt?d=${v.duration}`} />}
+              {v.caption_langs.map((l) => <track key={l} kind="captions" label={langNames[l] ?? l} srcLang={l} default={capLang === l} src={`${srv}/captions/${v.share_id}.vtt?lang=${l}&d=${v.duration}`} />)}
+            </video>
           </div>
-        </section>
+          <div className="controls">
+            <IconButton icon={playing ? Pause : Play} label={playing ? "Pause (Space)" : "Play (Space)"} onClick={() => { const el = video.current; if (el) { if (el.paused) el.play(); else el.pause(); } }} />
+            <span className="time">{mmss(now)}</span>
+            <div className="scrub">
+              <input type="range" min={0} max={v.duration || 1} step={0.1} value={Math.min(now, v.duration)} aria-label="Playhead"
+                style={{ ["--pct" as string]: `${(now / (v.duration || 1)) * 100}%` }}
+                onChange={(e) => { const t = Number(e.target.value); setNow(t); if (video.current) video.current.currentTime = t; }} />
+              {v.chapters.map((c) => c.start > 0 && <i key={c.start} className="tick" style={{ left: `${(c.start / v.duration) * 100}%` }} title={c.title} />)}
+            </div>
+            <span className="time">{mmss(v.duration)}</span>
+            <IconButton icon={Captions} label="Captions" disabled={!d.cues.length} pressed={d.cues.length > 0 && capLang !== "off"} onClick={captionsMenu} />
+            <IconButton icon={Maximize} label="Full Screen" onClick={() => video.current?.requestFullscreen()} />
+          </div>
+          <div className="info">
+            <p className="callout secondary num">{new Date(v.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} · {mmss(v.duration)}{v.edited ? " · Edited" : ""}</p>
+            {v.summary ? <p className="summary selectable">{v.summary}</p> : v.has_transcript && <p className="secondary">No summary yet. Chapters in the inspector can write one.</p>}
+          </div>
+          {ai && !ready && (
+            <div className="notice">
+              <Icon as={Info} />
+              <p><b>Claude isn't connected.</b> Recording, trimming, transcripts and sharing work without it. Titles, prompt edits, shorter versions, translations and questions need your Claude Code login or an API key in Settings.</p>
+            </div>
+          )}
+        </div>
 
-        <aside>
-          {v.chapters.length > 0 && (
-            <div className="card side-card"><h3>Chapters</h3>
-              {v.chapters.map((c) => <button key={c.start} className="line" onClick={() => seek(c.start)}><time>{mmss(c.start)}</time>{c.title}</button>)}
-            </div>
-          )}
-          {v.has_transcript && (
-            <div className="card side-card"><h3>Ask this video</h3>
-              <form className="row" onSubmit={(e) => { e.preventDefault(); run("Claude is reading", async () => setAnswer(await api.ask(id, q))); }}>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="What was decided about..." maxLength={500} required />
-                <button className="primary" disabled={!!busy}>Ask</button>
-              </form>
-              {answer && <p className="answer">{answer.answer} {answer.timestamps.map((t) => <a key={t} onClick={() => seek(t)}>[{mmss(t)}]</a>)}</p>}
-            </div>
-          )}
-          {d.cues.length > 0 && (
-            <div className="card side-card transcript"><h3>Transcript</h3>
-              {d.cues.map(([a, , text], i) => <button key={i} className={`line ${i === activeCue ? "on" : ""}`} onClick={() => seek(a)}><time>{mmss(a)}</time>{text}</button>)}
-            </div>
-          )}
+        <aside className="inspector" aria-label="Inspector">
+          <header>
+            <Segmented label="Inspector" full value={tab} onChange={setTab} options={[
+              { value: "transcript", label: "Transcript" }, { value: "chapters", label: "Chapters" },
+              { value: "edit", label: "Edit" }, { value: "voice", label: "Voice" },
+            ]} />
+          </header>
+          <div className="body">
+            {tab === "transcript" && (!v.has_transcript ? (
+              <section>
+                <h3>Transcript</h3>
+                <p className="hint">Transcribed on this Mac. Nothing is uploaded.</p>
+                <Button kind="primary" disabled={busy} onClick={() => run("transcript", "Transcribing", () => api.transcribe(id), "Transcript ready.")}>Transcribe</Button>
+                <TaskStatus {...report("transcript")} />
+              </section>
+            ) : (
+              <>
+                <AskSection id={id} run={run} report={report} busy={busy || !ready} seek={seek} />
+                <section>
+                  <h3>Captions</h3>
+                  <TranslateCaptions video={v} busy={busy || !ready} run={run} />
+                  <Button kind="plain" disabled={busy} onClick={() => run("captions", "Transcribing", () => api.transcribe(id), "Transcript refreshed.")}>Transcribe Again</Button>
+                  <TaskStatus {...report("captions")} />
+                </section>
+                <section>
+                  <h3>Transcript</h3>
+                  <div className="lines selectable">
+                    {d.cues.map(([a, , text], i) => (
+                      <button key={i} type="button" className="line" aria-current={i === activeCue} onClick={() => seek(a)}><time>{mmss(a)}</time><span>{text}</span></button>
+                    ))}
+                  </div>
+                </section>
+              </>
+            ))}
+
+            {tab === "chapters" && (
+              <section>
+                <h3>Chapters</h3>
+                {v.chapters.length > 0
+                  ? <div className="lines">{v.chapters.map((c) => <button key={c.start} type="button" className="line" onClick={() => seek(c.start)}><time>{mmss(c.start)}</time><span>{c.title}</span></button>)}</div>
+                  : <p className="hint">{v.has_transcript ? "No chapters yet." : "Transcribe first, then Claude can write chapters."}</p>}
+                <Button icon={Sparkles} disabled={busy || !v.has_transcript || !ready}
+                  onClick={() => run("chapters", "Claude is writing", () => api.insights(id), "Title, summary and chapters updated.")}>Write Title, Summary and Chapters</Button>
+                <TaskStatus {...report("chapters")} />
+              </section>
+            )}
+
+            {tab === "edit" && (
+              <>
+                <PromptEdit video={v} busy={busy || !ready} run={run} report={report} />
+                <MakeShorter video={v} busy={busy || !ready} run={run} report={report} seek={seek} onCreated={(s) => onOpen(s.id)} />
+                <CutsSection id={id} duration={v.duration} run={run} report={report} busy={busy} seek={seek} />
+                <TrimSection id={id} duration={v.duration} now={now} run={run} report={report} busy={busy} />
+              </>
+            )}
+
+            {tab === "voice" && <VoicePanel video={v} player={video} onSaved={() => { load(); setStatus({ at: "voice", text: "Voice applied to shares and exports." }); }} saved={report("voice").status} />}
+          </div>
         </aside>
       </div>
-    </div>
+
+      {exporting && <ExportSheet detail={d} onClose={() => setExporting(false)} />}
+      {sharing && (
+        <Sheet title="Share" subtitle={`The link plays "${v.title}" from this Mac. It works while ${brand.name} is running.`}
+          onClose={() => setSharing(false)} footer={<Button large kind="primary" onClick={() => setSharing(false)}>Done</Button>}>
+          <SharePanel detail={d} run={run} report={report} busy={busy} />
+        </Sheet>
+      )}
+    </>
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="card panel"><h3>{title}</h3>{children}</div>;
+function AskSection({ id, run, report, busy, seek }: { id: string; run: Run; report: Report; busy: boolean; seek: (t: number) => void }) {
+  const [q, setQ] = useState("");
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  return (
+    <section>
+      <h3>Ask This Video</h3>
+      <form className="hstack" onSubmit={(e) => { e.preventDefault(); run("ask", "Claude is reading", async () => setAnswer(await api.ask(id, q))); }}>
+        <input className="field grow" value={q} onChange={(e) => setQ(e.target.value)} placeholder="What was decided about..." maxLength={500} required aria-label="Question" />
+        <Button kind="primary" type="submit" disabled={busy || !q.trim()}>Ask</Button>
+      </form>
+      <TaskStatus {...report("ask")} />
+      {answer && (
+        <p className="answer selectable">{answer.answer}{answer.timestamps.map((t) => <button key={t} type="button" className="link" onClick={() => seek(t)}>{mmss(t)}</button>)}</p>
+      )}
+    </section>
+  );
+}
+
+function CutsSection({ id, duration, run, report, busy, seek }: { id: string; duration: number; run: Run; report: Report; busy: boolean; seek: (t: number) => void }) {
+  const [opts, setOpts] = useState(DEFAULT_CUTS);
+  const [plan, setPlan] = useState<CutPlan | null>(null);
+  const set = (o: Partial<CutOptions>) => { setOpts({ ...opts, ...o }); setPlan(null); };
+  return (
+    <section>
+      <h3>Remove Ums and Pauses</h3>
+      <Group>
+        <Row label="Filler words" detail="um, uh, er"><Toggle label="Remove filler words" checked={opts.remove_fillers} onChange={(on) => set({ remove_fillers: on })} /></Row>
+        <Row label="Pauses over">
+          <input className="field" type="number" step={0.1} min={0.3} value={opts.min_silence} aria-label="Pause length in seconds"
+            disabled={!opts.remove_silences} onChange={(e) => set({ min_silence: Number(e.target.value) })} />
+          <span className="secondary">s</span>
+          <Toggle label="Remove pauses" checked={opts.remove_silences} onChange={(on) => set({ remove_silences: on })} />
+        </Row>
+      </Group>
+      <div className="hstack">
+        <Button disabled={busy || duration <= 0} onClick={() => run("cuts", "Finding cuts", async () => setPlan(await api.planCuts(id, opts)))}>Preview</Button>
+        {plan && plan.removed.length > 0 && <Button kind="primary" disabled={busy} onClick={() => run("cuts", "Cutting", async () => { await api.applyCuts(id, opts); setPlan(null); }, "Done. Transcribe again to refresh captions.")}>Apply {plan.removed.length} Cuts</Button>}
+      </div>
+      <TaskStatus {...report("cuts")} />
+      {plan && (
+        <div className="diff">
+          <p className="head num">{plan.removed.length ? `${mmss(plan.original)} to ${mmss(plan.result)}, ${plan.removed.length} cuts` : "Nothing to remove."}</p>
+          {plan.removed.length > 0 && <ul>{plan.removed.slice(0, 12).map(([r, why], i) => <li key={i}><button type="button" className="link num" onClick={() => seek(Math.max(0, r.start - 1))}>{mmss(r.start)}</button> {why}</li>)}</ul>}
+          {plan.removed.length > 12 && <p className="callout secondary">and {plan.removed.length - 12} more</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TrimSection({ id, duration, now, run, report, busy }: { id: string; duration: number; now: number; run: Run; report: Report; busy: boolean }) {
+  const [trim, setTrim] = useState<[number, number]>([0, duration]);
+  useEffect(() => setTrim([0, duration]), [duration]);
+  const changed = trim[0] > 0.05 || trim[1] < duration - 0.05;
+  const field = (i: 0 | 1, label: string) => (
+    <Row label={label}>
+      <input className="field" type="number" step={0.1} min={0} max={duration} value={trim[i].toFixed(1)} aria-label={`${label} in seconds`}
+        onChange={(e) => { const t = [...trim] as [number, number]; t[i] = Number(e.target.value); setTrim(t); }} />
+      <Button kind="plain" onClick={() => { const t = [...trim] as [number, number]; t[i] = now; setTrim(t); }}>Set to Playhead</Button>
+    </Row>
+  );
+  return (
+    <section>
+      <h3>Trim</h3>
+      <Group>{field(0, "Start")}{field(1, "End")}</Group>
+      <div className="hstack">
+        <Button kind="primary" disabled={busy || !changed || trim[0] >= trim[1]} onClick={() => run("trim", "Trimming", () => api.trim(id, trim[0], trim[1]), "Trimmed. Restore Original is in the More menu.")}>Trim to {mmss(Math.max(0, trim[1] - trim[0]))}</Button>
+        {changed && <Button kind="plain" onClick={() => setTrim([0, duration])}>Reset</Button>}
+      </div>
+      <TaskStatus {...report("trim")} />
+    </section>
+  );
+}
+
+function SharePanel({ detail, run, report, busy }: { detail: VideoDetail; run: Run; report: Report; busy: boolean }) {
+  const v = detail.video;
+  const [srv, setSrv] = useState("");
+  const [pub, setPub] = useState<string | null>(null);
+  useEffect(() => { base().then(setSrv); api.shareStatus().then(setPub); }, []);
+  const local = `${srv}/v/${v.share_id}`;
+  const link = pub ? `${pub}/v/${v.share_id}` : null;
+  return (
+    <>
+      <Group>
+        <Row label="Public link" detail={pub ? "Anyone with the link can watch." : "Off. Only this Mac can open the link."}>
+          <Toggle label="Public link" checked={!!pub} disabled={busy} onChange={(on) => run("share", on ? "Opening a public link" : "Stopping", async () => {
+            if (on) { const u = await api.shareStart(); setPub(u); await writeText(`${u}/v/${v.share_id}`); } else { await api.shareStop(); setPub(null); }
+          }, on ? "Public link copied." : undefined)} />
+        </Row>
+        <Row label="Viewers can ask questions" detail="Answers use your Claude.">
+          <Toggle label="Viewers can ask questions" checked={v.public_questions} disabled={busy} onChange={(on) => run("share", "Saving", () => api.setPublicQuestions(v.id, on))} />
+        </Row>
+      </Group>
+      <CopyRow value={link ?? local} onCopy={() => writeText(link ?? local)} />
+      <TaskStatus {...report("share")} />
+    </>
+  );
+}
+
+type Kind = "mp4" | "captioned" | "srt" | "vtt";
+function ExportSheet({ detail, onClose }: { detail: VideoDetail; onClose: () => void }) {
+  const v = detail.video;
+  const [kind, setKind] = useState<Kind>("mp4");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<Status>(null);
+  const kinds: { k: Kind; label: string; note: string; needs?: boolean }[] = [
+    { k: "mp4", label: "Video", note: "MP4" },
+    { k: "captioned", label: "Video with captions", note: "MP4, burned in", needs: true },
+    { k: "srt", label: "Subtitles", note: "SRT", needs: true },
+    { k: "vtt", label: "Subtitles", note: "WebVTT", needs: true },
+  ];
+  const go = async () => {
+    setBusy(true); setStatus(null);
+    try { const r = await api.exportVideo(v.id, kind); setStatus({ text: r.note ?? `Saved to Downloads: ${r.path.split("/").pop()}` }); }
+    catch (e) { setStatus({ text: errText(e), error: true }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Sheet title="Export" subtitle={`Saves "${v.title}" to your Downloads folder.`} onClose={onClose}
+      footer={<>
+        <span className="msg"><TaskStatus busy={busy ? "Exporting" : undefined} status={status} /></span>
+        <Button large onClick={onClose}>Done</Button>
+        <Button large kind="primary" disabled={busy} onClick={go}>Export</Button>
+      </>}>
+      <div className="radio-list" role="radiogroup" aria-label="Format">
+        {kinds.map(({ k, label, note, needs }) => (
+          <label key={k} className={needs && !v.has_transcript ? "disabled" : ""}>
+            <input type="radio" name="kind" checked={kind === k} disabled={needs && !v.has_transcript} onChange={() => setKind(k)} />
+            {label}<small>{needs && !v.has_transcript ? "Needs a transcript" : note}</small>
+          </label>
+        ))}
+      </div>
+    </Sheet>
+  );
 }

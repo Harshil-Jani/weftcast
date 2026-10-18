@@ -53,6 +53,8 @@ export const api = {
   cancel: () => invoke<void>("cancel_recording"),
   overlays: (hud: boolean, bubble: boolean) => invoke<void>("show_overlays", { hud, bubble }),
   hideMain: () => invoke<void>("hide_main"),
+  hudLayout: (mode: "setup" | "countdown" | "recording" | "error") => invoke<void>("hud_layout", { mode }),
+  bubbleSize: (diameter: number) => invoke<void>("bubble_size", { diameter }),
   transcribe: (id: string) => invoke<VideoDetail>("transcribe_video", { id }),
   insights: (id: string) => invoke<Video>("generate_insights", { id }),
   ask: (id: string, question: string) => invoke<Answer>("ask_video", { id, question }),
@@ -104,3 +106,19 @@ export async function base() {
   portCache ??= await api.port();
   return `http://127.0.0.1:${portCache}`;
 }
+
+export type Progress = { label: string; value?: number } | null;
+/** Turns a backend "progress" event into a label and a 0..1 value (none when the length is unknown). */
+export const toProgress = (p: { stage: string; done: number; total: number }): Progress =>
+  p.stage === "done" ? null : { label: p.stage, value: p.total ? p.done / p.total : undefined };
+
+/** The last recording setup, so the global shortcut can start straight away. */
+export type Prefs = StartOptions & { camera: boolean };
+const PREFS = "rec-prefs";
+export function loadPrefs(): Prefs | null {
+  try { return JSON.parse(localStorage.getItem(PREFS) || "null"); } catch { return null; }
+}
+export function savePrefs(p: Prefs) {
+  try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch { /* private storage: the setup pill asks again */ }
+}
+export const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));

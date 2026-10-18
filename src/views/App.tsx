@@ -1,160 +1,146 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import { api, base, brand, errText, mmss, type Devices, type StartOptions, type Video } from "../lib/api";
+import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { Clapperboard, Film, Link2, Settings as Gear, Smartphone, Video as VideoIcon } from "lucide-react";
+import { api, base, brand, loadPrefs, mmss, type Video } from "../lib/api";
+import { beginRecording, newRecording, type Command } from "../lib/recording";
+import { Button, Icon, SidebarItem } from "../components/ui";
+import { VideoCard } from "../components/VideoCard";
 import Player from "./Player";
 import Settings from "./Settings";
 import Onboarding from "./Onboarding";
 import Shorts from "./Shorts";
+import Shared from "./Shared";
 
-type Tab = "library" | "shorts" | "settings";
-const PREFS = "rec-prefs";
-
-type Prefs = StartOptions & { camera: boolean };
-function loadPrefs(): Prefs | null {
-  try { return JSON.parse(localStorage.getItem(PREFS) || "null"); } catch { return null; }
-}
-
-/** Starts the countdown in the controls window and gets the library out of the way. */
-export async function beginRecording(p: Prefs) {
-  localStorage.setItem(PREFS, JSON.stringify(p));
-  await api.overlays(true, p.camera);
-  await emit("bubble", { on: p.camera });
-  await emit("countdown", { screen: p.screen, mic: p.mic });
-  await api.hideMain();
-}
+type View = "library" | "shorts" | "shared";
+const stored = (k: string, d: boolean) => { try { const v = localStorage.getItem(k); return v === null ? d : v === "1"; } catch { return d; } };
+const store = (k: string, v: boolean) => { try { localStorage.setItem(k, v ? "1" : "0"); } catch { /* not persisted */ } };
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("library");
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [view, setView] = useState<View>("library");
+  const [videos, setVideos] = useState<Video[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [newRec, setNewRec] = useState(false);
   const [srv, setSrv] = useState("");
-  const [onboard, setOnboard] = useState(false);
+  const [sheet, setSheet] = useState<"settings" | "onboarding" | null>(null);
+  const [sidebar, setSidebar] = useState(() => stored("sidebar", true));
+  const [command, setCommand] = useState<Command>(null);
+  const n = useRef(0);
 
   const refresh = useCallback(() => { api.list().then(setVideos); }, []);
+  // Navigating drops any pending menu command, so a screen opened later never replays an old one.
+  const go = useCallback((v: View) => { setView(v); setOpen(null); setCommand(null); refresh(); }, [refresh]);
+
   useEffect(() => {
     refresh();
     base().then(setSrv);
-    api.settings().then((s) => setOnboard(!s.onboarded));
+    api.settings().then((s) => { if (!s.onboarded) setSheet("onboarding"); });
     const offs = [
-      listen<string>("recording-saved", (e) => { refresh(); setOpen(e.payload); setTab("library"); }),
-      // Global shortcut and tray: stop if recording, otherwise start with the last settings.
+      listen<string>("recording-saved", (e) => { refresh(); setView("library"); setOpen(e.payload); }),
       listen("toggle-recording", async () => {
         const s = await api.state();
         if (s.recording) { await emit("bubble", { on: false }); await api.stop(); return; }
         const p = loadPrefs();
-        if (p) await beginRecording(p); else setNewRec(true);
+        if (p) await beginRecording(p); else await newRecording();
+      }),
+      listen<string>("menu", (e) => {
+        const id = e.payload;
+        if (id === "settings") setSheet("settings");
+        else if (id === "new-recording") newRecording();
+        else if (id === "view-library") go("library");
+        else if (id === "view-shorts") go("shorts");
+        else if (id === "view-shared") go("shared");
+        else if (id === "toggle-sidebar") setSidebar((s) => { store("sidebar", !s); return !s; });
+        else {
+          if (id === "import") { setView("shorts"); setOpen(null); }
+          setCommand({ name: id, n: ++n.current });
+        }
       }),
     ];
     return () => { offs.forEach((o) => o.then((f) => f())); };
-  }, [refresh]);
+  }, [refresh, go]);
 
-  return (
-    <div className="shell">
-      <aside className="side">
-        <div className="logo"><span className="dot" />{brand.name}</div>
-        <button className="primary big" onClick={() => setNewRec(true)}>● New recording</button>
-        <nav>
-          <button className={tab === "library" && !open ? "on" : ""} onClick={() => { setTab("library"); setOpen(null); }}>Library</button>
-          <button className={tab === "shorts" ? "on" : ""} onClick={() => { setTab("shorts"); setOpen(null); }}>Shorts</button>
-          <button className={tab === "settings" ? "on" : ""} onClick={() => { setTab("settings"); setOpen(null); }}>Settings</button>
-        </nav>
-        <p className="hint">Alt+Shift+R starts and stops a recording from anywhere.</p>
-      </aside>
-      <main className="content">
-        {tab === "settings" ? <Settings /> : tab === "shorts" ? <Shorts videos={videos} onImported={refresh} /> : open ? (
-          <Player key={open} id={open} onBack={() => { setOpen(null); refresh(); }} onDeleted={() => { setOpen(null); refresh(); }} onOpen={(n) => { refresh(); setOpen(n); }} />
-        ) : (
-          <Library videos={videos} srv={srv} onOpen={setOpen} onNew={() => setNewRec(true)} />
-        )}
-      </main>
-      {newRec && <NewRecording onClose={() => setNewRec(false)} />}
-      {onboard && <Onboarding onDone={() => setOnboard(false)} />}
-    </div>
-  );
-}
-
-function Library({ videos, srv, onOpen, onNew }: { videos: Video[]; srv: string; onOpen: (id: string) => void; onNew: () => void }) {
-  if (!videos.length) {
-    return (
-      <div className="empty">
-        <h1>No recordings yet</h1>
-        <p>{brand.tagline}</p>
-        <button className="primary" onClick={onNew}>Record your first video</button>
-      </div>
-    );
-  }
-  return (
-    <>
-      <h1 className="page-title">Library</h1>
-      <div className="grid">
-        {videos.map((v) => (
-          <button key={v.id} className="card video-card" onClick={() => onOpen(v.id)}>
-            <div className="thumb" style={{ backgroundImage: srv ? `url(${srv}/thumb/${v.share_id}.jpg?d=${v.duration})` : undefined }}>
-              <span className="dur">{mmss(v.duration)}</span>
-            </div>
-            <div className="meta">
-              <b>{v.title}</b>
-              <small>{new Date(v.created_at).toLocaleString()}{v.has_transcript ? " · transcript" : ""}</small>
-            </div>
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function NewRecording({ onClose }: { onClose: () => void }) {
-  const saved = loadPrefs();
-  const [devs, setDevs] = useState<Devices | null>(null);
-  const [screen, setScreen] = useState(saved?.screen ?? "");
-  const [mic, setMic] = useState<string>(saved?.mic ?? "");
-  const [camera, setCamera] = useState(saved?.camera ?? true);
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    api.devices().then((d) => {
-      setDevs(d);
-      setScreen((s) => (d.screens.some((x) => x.index === s) ? s : d.screens[0]?.index ?? ""));
-      setMic((m) => (m === "none" || d.mics.some((x) => x.index === m) ? m : d.mics[0]?.index ?? "none"));
-    }).catch((e) => setErr(errText(e)));
-  }, []);
-
-  const go = async () => {
-    try {
-      await beginRecording({ screen, mic: mic === "none" ? null : mic, camera });
-      onClose();
-    } catch (e) { setErr(errText(e)); }
+  const contextMenu = async (v: Video) => {
+    const pub = await api.shareStatus();
+    const link = pub ? `${pub}/v/${v.share_id}` : `${srv}/v/${v.share_id}`;
+    const menu = await Menu.new({
+      items: [
+        { id: "open", text: "Open", action: () => setOpen(v.id) },
+        { id: "copy", text: pub ? "Copy Public Link" : "Copy Local Link", action: () => writeText(link) },
+        { id: "finder", text: "Show in Finder", action: () => api.reveal(v.id) },
+        { id: "shorts", text: "Make Shorts…", action: () => { setView("shorts"); setCommand({ name: `shorts:${v.id}`, n: ++n.current }); } },
+        await PredefinedMenuItem.new({ item: "Separator" }),
+        { id: "delete", text: "Delete…", action: async () => {
+          if (await ask(`"${v.title}" and its transcript will be removed from this Mac. This can't be undone.`, { title: "Delete this recording?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" })) {
+            await api.remove(v.id); refresh();
+          }
+        } },
+      ],
+    });
+    await menu.popup();
   };
 
+  const list = videos ?? [];
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>New recording</h2>
-        {!devs && !err && <p className="muted">Looking for screens and microphones...</p>}
-        {devs && (
-          <>
-            <label>Screen
-              <select value={screen} onChange={(e) => setScreen(e.target.value)}>
-                {devs.screens.map((d) => <option key={d.index} value={d.index}>{d.name.replace("Capture screen", "Display")}</option>)}
-              </select>
-            </label>
-            <label>Microphone
-              <select value={mic} onChange={(e) => setMic(e.target.value)}>
-                {devs.mics.map((d) => <option key={d.index} value={d.index}>{d.name}</option>)}
-                <option value="none">No audio</option>
-              </select>
-            </label>
-            <label className="check"><input type="checkbox" checked={camera} onChange={(e) => setCamera(e.target.checked)} /> Show my camera in a bubble</label>
-            <p className="muted small">Recording starts after a 3 second countdown. Stop it from the controls bar, the menu bar icon, or Alt+Shift+R.</p>
-          </>
-        )}
-        {err && <p className="error">{err}</p>}
-        <div className="row end">
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!screen} onClick={go}>Start recording</button>
+    <div className={`window ${sidebar ? "" : "no-sidebar"}`}>
+      <aside className="sidebar" data-tauri-drag-region aria-label="Sidebar">
+        <SidebarItem icon={Film} label="Library" current={view === "library" && !open} count={videos?.length} onClick={() => go("library")} />
+        <SidebarItem icon={Smartphone} label="Shorts" current={view === "shorts"} onClick={() => go("shorts")} />
+        <SidebarItem icon={Link2} label="Shared" current={view === "shared"} onClick={() => go("shared")} />
+        <div className="foot">
+          <SidebarItem icon={Gear} label="Settings" current={sheet === "settings"} onClick={() => setSheet("settings")} />
         </div>
-      </div>
+      </aside>
+
+      <main className="main">
+        {view === "shorts" ? (
+          <Shorts videos={list} srv={srv} onImported={refresh} command={command} />
+        ) : view === "shared" ? (
+          <Shared videos={list} srv={srv} onOpen={(id) => { setView("library"); setOpen(id); }} />
+        ) : open ? (
+          <Player key={open} id={open} command={command} onBack={() => { setOpen(null); refresh(); }}
+            onDeleted={() => { setOpen(null); refresh(); }} onOpen={(id) => { refresh(); setOpen(id); }} />
+        ) : (
+          <Library videos={videos} srv={srv} onOpen={setOpen} onMenu={contextMenu} />
+        )}
+      </main>
+
+      {sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
+      {sheet === "onboarding" && <Onboarding onDone={() => setSheet(null)} />}
     </div>
+  );
+}
+
+function Library({ videos, srv, onOpen, onMenu }: { videos: Video[] | null; srv: string; onOpen: (id: string) => void; onMenu: (v: Video) => void }) {
+  const total = videos?.reduce((s, v) => s + v.duration, 0) ?? 0;
+  return (
+    <>
+      <div className="toolbar" data-tauri-drag-region>
+        <h1 className="title" data-tauri-drag-region>Library</h1>
+        {videos && videos.length > 0 && <span className="subtitle num" data-tauri-drag-region>{videos.length} {videos.length === 1 ? "video" : "videos"}, {mmss(total)}</span>}
+        <span className="spacer" data-tauri-drag-region />
+        <Button kind="primary" icon={VideoIcon} onClick={newRecording} title="New Recording (Command N)">New Recording</Button>
+      </div>
+      <div className="page">
+        {videos === null ? (
+          <div className="lib-grid" aria-busy="true" aria-label="Loading library">
+            {Array.from({ length: 6 }, (_, i) => <div key={i} className="stack"><div className="skeleton" style={{ aspectRatio: "16 / 10" }} /><div className="skeleton" style={{ height: 14, width: "70%" }} /></div>)}
+          </div>
+        ) : videos.length === 0 ? (
+          <div className="empty">
+            <Icon as={Clapperboard} size={44} />
+            <h2 className="title2">No recordings yet</h2>
+            <p>{brand.tagline}</p>
+            <Button kind="primary" large icon={VideoIcon} onClick={newRecording}>New Recording</Button>
+            <p className="caption">Press <kbd>⌘N</kbd> here, or <kbd>⌥⇧R</kbd> in any app to start and stop.</p>
+          </div>
+        ) : (
+          <div className="lib-grid">
+            {videos.map((v) => <VideoCard key={v.id} video={v} srv={srv} onOpen={() => onOpen(v.id)} onMenu={() => onMenu(v)} />)}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

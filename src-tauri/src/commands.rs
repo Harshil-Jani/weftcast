@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 
 use crate::ai;
 use crate::brand::{BRAND, Brand};
@@ -130,6 +130,13 @@ fn bubble_rect(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
     }
     let (pos, size) = (w.outer_position().ok()?, w.outer_size().ok()?);
     let m = w.current_monitor().ok()??;
+    // The circle sits inside a transparent margin (room for its shadow).
+    let pad = (crate::BUBBLE_PAD * m.scale_factor()) as i32;
+    let pos = PhysicalPosition::new(pos.x + pad, pos.y + pad);
+    let size = PhysicalSize::new(
+        size.width.saturating_sub(2 * pad as u32),
+        size.height.saturating_sub(2 * pad as u32),
+    );
     let (mw, mh) = (m.size().width as f64, m.size().height as f64);
     let (mx, my) = (m.position().x as f64, m.position().y as f64);
     Some((
@@ -151,6 +158,16 @@ pub async fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Res
 #[tauri::command]
 pub fn show_overlays(app: AppHandle, hud: bool, bubble: bool) {
     crate::show_overlays(&app, hud, bubble);
+}
+
+#[tauri::command]
+pub fn hud_layout(app: AppHandle, mode: String) {
+    crate::hud_layout(&app, &mode);
+}
+
+#[tauri::command]
+pub fn bubble_size(app: AppHandle, diameter: f64) {
+    crate::bubble_size(&app, diameter);
 }
 
 #[tauri::command]

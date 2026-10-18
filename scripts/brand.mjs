@@ -28,15 +28,21 @@ const tauriConf = {
     withGlobalTauri: false,
     security: { csp: null },
     windows: [
-      { label: "main", title: brand.name, url: "index.html", width: 1180, height: 760, minWidth: 820, minHeight: 560 },
       {
-        label: "hud", title: `${brand.name} controls`, url: "index.html#/hud", width: 420, height: 64,
+        // Unified toolbar: content runs under the title bar, traffic lights inset into the toolbar,
+        // and the sidebar shows the system sidebar material through the transparent window.
+        label: "main", title: brand.name, url: "index.html", width: 1180, height: 760, minWidth: 900, minHeight: 600,
+        titleBarStyle: "Overlay", hiddenTitle: true, trafficLightPosition: { x: 20, y: 26 },
+        transparent: true, windowEffects: { effects: ["sidebar"], state: "followsWindowActiveState" },
+      },
+      {
+        label: "hud", title: `${brand.name} controls`, url: "index.html#/hud", width: 440, height: 60,
         visible: false, decorations: false, transparent: true, alwaysOnTop: true, resizable: false,
         skipTaskbar: true, shadow: false,
       },
       {
         label: "bubble", title: `${brand.name} camera`, url: "index.html#/bubble", width: 220, height: 220,
-        visible: false, decorations: false, transparent: true, alwaysOnTop: true, resizable: true,
+        visible: false, decorations: false, transparent: true, alwaysOnTop: true, resizable: false,
         skipTaskbar: true, shadow: false,
       },
     ],
