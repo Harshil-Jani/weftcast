@@ -1,0 +1,38 @@
+{
+  "name": "recorder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "brand": "node scripts/brand.mjs",
+    "check:brand": "node scripts/check-brand.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "vite:dev": "vite",
+    "vite:build": "tsc --noEmit && vite build",
+    "dev": "npm run brand && tauri dev",
+    "build": "npm run brand && tauri build",
+    "tauri": "npm run brand && tauri",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-clipboard-manager": "^2",
+    "@tauri-apps/plugin-global-shortcut": "^2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "@tauri-apps/cli": "2.12.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "6.1.2",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
+    "globals": "^16",
+    "typescript": "^5.9",
+    "typescript-eslint": "^8",
+    "vite": "8.3.4"
+  }
+}
