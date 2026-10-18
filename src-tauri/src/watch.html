@@ -20,7 +20,7 @@
   @media (prefers-color-scheme: dark) {
     :root {
       --accent-text: color-mix(in oklab, var(--accent) 62%, white);
-      --bg: #000000; --group: #1c1c1e; --fill: rgba(255, 255, 255, 0.08); --separator: rgba(255, 255, 255, 0.12);
+      --bg: #1e1e1e; --group: #262628; --fill: rgba(255, 255, 255, 0.08); --separator: rgba(255, 255, 255, 0.12);
       --field: #2c2c2e; --field-edge: rgba(255, 255, 255, 0.14);
       --label: #f5f5f7; --label-2: #a1a1a6;
     }
@@ -29,22 +29,24 @@
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--label); font: 17px/1.47 var(--font); -webkit-font-smoothing: antialiased; }
   header { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 24px; box-shadow: inset 0 -0.5px 0 var(--separator); font: 600 15px/1 var(--font); }
-  .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--accent-fill); }
+  .mark { width: 22px; height: 22px; border-radius: 5px; display: block; }
   main { max-width: 1240px; margin: 0 auto; padding: 32px 24px 48px; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 40px; }
   video { width: 100%; border-radius: 12px; background: #000; display: block; aspect-ratio: 16 / 10; }
-  h1 { font: 600 32px/1.15 var(--font); letter-spacing: -0.01em; margin: 24px 0 12px; max-width: 30ch; }
+  h1 { font: 600 32px/1.15 var(--font); letter-spacing: -0.01em; margin: 24px 0 6px; max-width: 30ch; }
+  .meta { margin: 0 0 16px; color: var(--label-2); font-size: 15px; font-variant-numeric: tabular-nums; }
   .summary { margin: 0; max-width: 64ch; color: var(--label); }
-  .langs { margin-top: 12px; color: var(--label-2); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .langs { color: var(--label-2); font-size: 14px; display: flex; align-items: center; gap: 8px; }
   select { height: 28px; padding: 0 8px; border-radius: 6px; border: 0.5px solid var(--field-edge); background: var(--field); color: var(--label); font: 14px var(--font); }
   aside { display: grid; gap: 32px; align-content: start; min-width: 0; }
   aside section { display: grid; gap: 10px; min-width: 0; }
   aside h2 { font: 600 17px/1.3 var(--font); margin: 0; }
   .list { display: grid; gap: 2px; }
-  .chap, .cue { display: grid; grid-template-columns: 44px 1fr; gap: 8px; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 8px; color: var(--label); font: 15px/1.4 var(--font); cursor: pointer; }
+  .chap, .cue { display: grid; grid-template-columns: 44px 1fr; scroll-margin: 24px; gap: 8px; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 8px; color: var(--label); font: 15px/1.4 var(--font); cursor: pointer; }
   .chap:hover, .cue:hover { background: var(--fill); }
   .chap time, .cue time { color: var(--accent-text); font-variant-numeric: tabular-nums; font-size: 14px; padding-top: 1px; }
   .cue.on { background: var(--accent-soft); }
-  #transcript { max-height: 480px; overflow: auto; }
+  #transcript { max-height: 480px; overflow: auto; position: relative; }
   form { display: flex; gap: 8px; }
   input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 8px; border: 0.5px solid var(--field-edge); background: var(--field); color: var(--label); font: 15px var(--font); }
   input::placeholder { color: var(--label-2); }
@@ -60,12 +62,12 @@
 </style>
 </head>
 <body>
-<header><span class="dot" aria-hidden="true"></span><span id="brand"></span></header>
+<header><img class="mark" src="/brand.png" alt="" /><span id="brand"></span></header>
 <main>
   <section>
     <video id="v" controls playsinline preload="metadata"></video>
-    <div class="langs" id="langs" hidden><label for="lang">Captions</label><select id="lang"></select></div>
     <h1 id="title"></h1>
+    <p class="meta" id="meta"></p>
     <p class="summary" id="summary"></p>
   </section>
   <aside>
@@ -75,7 +77,10 @@
       <form id="ask"><input id="q" placeholder="What did they say about..." maxlength="500" required aria-label="Question" /><button class="go">Ask</button></form>
       <div id="answer" aria-live="polite"></div>
     </section>
-    <section id="transcript-card" hidden><h2>Transcript</h2><div class="list" id="transcript"></div></section>
+    <section id="transcript-card" hidden>
+      <div class="head"><h2>Transcript</h2><div class="langs" id="langs" hidden><label for="lang">Captions</label><select id="lang"></select></div></div>
+      <div class="list" id="transcript"></div>
+    </section>
   </aside>
 </main>
 <footer>Recorded with <a id="repo" target="_blank" rel="noopener"></a>. Runs on the sender's computer; this link stops working when they close the app.</footer>
@@ -102,11 +107,38 @@
   fetch("/api/v/" + SHARE).then((r) => r.json()).then((m) => {
     $("title").textContent = m.title; document.title = m.title + " · " + BRAND.name;
     $("summary").textContent = m.summary || "";
+    const when = m.created_at ? new Date(m.created_at).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : "";
+    $("meta").textContent = [when, mmss(m.duration || 0)].filter(Boolean).join(" · ");
     if (m.chapters.length) { $("chapters-card").hidden = false; m.chapters.forEach((c) => $("chapters").append(row("chap", c.start, c.title))); }
     if (m.cues.length) {
+      // Sentence rows, the same rule as the app: end at . ? or ! (also mid-cue) or before a 1.5s pause.
+      const END = /[.?!]["')\]]?$/, pieces = [];
+      m.cues.forEach(([a, b, text]) => {
+        const t = text.trim(), parts = t.split(/(?<=[.?!]["')\]]?)\s+/); let at = 0;
+        parts.forEach((p, k) => {
+          const start = a + (b - a) * at / Math.max(1, t.length); at += p.length + 1;
+          const stop = k < parts.length - 1 ? a + (b - a) * at / Math.max(1, t.length) : b;
+          pieces.push({ a: start, b: stop, t: p, end: k < parts.length - 1 || END.test(p) });
+        });
+      });
+      const rows = []; let cur = null;
+      pieces.forEach((p, i) => {
+        cur = cur ? [cur[0], p.b, cur[2] + " " + p.t] : [p.a, p.b, p.t];
+        const next = pieces[i + 1];
+        if (!next || p.end || next.a - p.b >= 1.5) { rows.push(cur); cur = null; }
+      });
       $("transcript-card").hidden = false;
-      const els = m.cues.map(([a, , text]) => { const e = row("cue", a, text); $("transcript").append(e); return [a, e]; });
-      v.addEventListener("timeupdate", () => els.forEach(([a, e], i) => e.classList.toggle("on", v.currentTime >= a && (i + 1 >= els.length || v.currentTime < els[i + 1][0]))));
+      const box = $("transcript");
+      const els = rows.map(([a, , text]) => { const e = row("cue", a, text); box.append(e); return [a, e]; });
+      let last = -1;
+      v.addEventListener("timeupdate", () => {
+        const i = els.findIndex(([a], k) => v.currentTime >= a && (k + 1 >= els.length || v.currentTime < els[k + 1][0]));
+        if (i === last) return;
+        els.forEach(([, e], k) => e.classList.toggle("on", k === i)); last = i;
+        // Scroll inside the transcript box only, never the page.
+        const e = i >= 0 && els[i][1];
+        if (e && !v.paused && (e.offsetTop < box.scrollTop || e.offsetTop + e.offsetHeight > box.scrollTop + box.clientHeight)) box.scrollTop = e.offsetTop - box.clientHeight / 3;
+      });
     }
     $("ask-card").hidden = !m.can_ask;
     if (m.languages.length) {

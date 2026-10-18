@@ -106,10 +106,12 @@ export default function Hud() {
       <span className="divider" />
       <select aria-label="Screen" value={screen} onChange={(e) => setScreen(e.target.value)} disabled={!devs}>
         {!devs && <option>Finding screens...</option>}
-        {devs?.screens.map((d) => <option key={d.index} value={d.index}>{d.name.replace("Capture screen", "Display")}</option>)}
+        {devs?.screens.map((d) => <option key={d.index} value={d.index}>{d.name}</option>)}
       </select>
-      <IconButton icon={mic === null ? MicOff : Mic} label={mic === null ? "Microphone off" : "Microphone on"} pressed={mic !== null} onClick={() => setMic(mic === null ? lastMic || devs?.mics[0]?.index || null : null)} />
-      <IconButton icon={ChevronDown} small label="Choose microphone" disabled={!devs?.mics.length} onClick={micMenu} />
+      <span className="split" role="group" aria-label="Microphone">
+        <IconButton icon={mic === null ? MicOff : Mic} label={mic === null ? "Microphone off" : "Microphone on"} pressed={mic !== null} onClick={() => setMic(mic === null ? lastMic || devs?.mics[0]?.index || null : null)} />
+        <IconButton icon={ChevronDown} small label="Choose microphone" disabled={!devs?.mics.length} onClick={micMenu} />
+      </span>
       <IconButton icon={camera ? Video : VideoOff} label={camera ? "Camera on" : "Camera off"} pressed={camera} onClick={toggleCamera} />
       <span className="spacer" data-tauri-drag-region />
       <button type="button" className="rec-btn" disabled={!screen} onClick={record}><i aria-hidden />Record</button>

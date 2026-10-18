@@ -26,6 +26,25 @@ pub struct Devices {
     pub mics: Vec<Device>,
 }
 
+impl Devices {
+    /// Replaces ffmpeg's "Capture screen N" with the display's real name (same order as the
+    /// system's display list), or "Display N+1" when the name is unknown.
+    pub fn name_screens(&mut self, names: &[String]) {
+        for (i, d) in self.screens.iter_mut().enumerate() {
+            let n = d
+                .name
+                .strip_prefix("Capture screen ")
+                .and_then(|n| n.trim().parse::<usize>().ok())
+                .unwrap_or(i);
+            d.name = names
+                .get(n)
+                .filter(|s| !s.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| format!("Display {}", n + 1));
+        }
+    }
+}
+
 pub async fn devices() -> Result<Devices> {
     let out = Command::new(media::tool("ffmpeg"))
         .args([
@@ -317,6 +336,10 @@ mod tests {
                    [AVFoundation indev @ 0x1] AVFoundation audio devices:\n\
                    [AVFoundation indev @ 0x1] [0] MacBook Pro Microphone\n";
         let d = super::parse_devices(log);
+        let mut named = d.clone();
+        named.name_screens(&["Built-in Retina Display".to_string()]);
+        assert_eq!(named.screens[0].name, "Built-in Retina Display");
+        assert_eq!(named.screens[1].name, "Display 2");
         assert_eq!(d.screens.len(), 2);
         assert_eq!(d.screens[1].index, "2");
         assert_eq!(d.mics[0].name, "MacBook Pro Microphone");

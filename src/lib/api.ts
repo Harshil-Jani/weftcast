@@ -98,6 +98,40 @@ export const api = {
   privacy: (pane: "screen" | "camera" | "microphone") => invoke<void>("open_privacy_settings", { pane }),
 };
 
+/**
+ * Sentence rows from caption cues. A row ends at . ? or ! (also mid-cue, where the start of the next
+ * sentence is estimated from its position in the cue's text) or before a pause of 1.5s or more.
+ */
+export function sentences(cues: Cue[]): Cue[] {
+  const pieces: { a: number; b: number; t: string; end: boolean }[] = [];
+  for (const [a, b, text] of cues) {
+    const t = text.trim();
+    const parts = t.split(/(?<=[.?!]["')\]]?)\s+/);
+    let at = 0;
+    parts.forEach((p, k) => {
+      const start = a + ((b - a) * at) / Math.max(1, t.length);
+      at += p.length + 1;
+      const stop = k < parts.length - 1 ? a + ((b - a) * at) / Math.max(1, t.length) : b;
+      pieces.push({ a: start, b: stop, t: p, end: k < parts.length - 1 || /[.?!]["')\]]?$/.test(p) });
+    });
+  }
+  const out: Cue[] = [];
+  let cur: Cue | null = null;
+  pieces.forEach((p, i) => {
+    cur = cur ? [cur[0], p.b, `${cur[2]} ${p.t}`] : [p.a, p.b, p.t];
+    const next = pieces[i + 1];
+    if (!next || p.end || next.a - p.b >= 1.5) { out.push(cur); cur = null; }
+  });
+  return out;
+}
+/** m:ss.s for precise fields, and its parser (accepts m:ss.s or plain seconds). */
+export const mmssd = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+export function parseTime(v: string): number | null {
+  const parts = v.trim().split(":").map(Number);
+  if (!parts.length || parts.length > 2 || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  return parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0];
+}
+
 export const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 export const errText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
 

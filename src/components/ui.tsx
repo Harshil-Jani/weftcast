@@ -102,8 +102,10 @@ export function TaskStatus({ busy, progress, status }: { busy?: string; progress
 }
 
 /** A macOS sheet: drops from the top of the window, Esc or the cancel button closes it. */
-export function Sheet({ title, subtitle, children, footer, onClose, wide }: {
+export function Sheet({ title, subtitle, children, footer, onClose, onSubmit, wide }: {
   title: string; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; onClose?: () => void; wide?: boolean;
+  /** The default button's action: Return runs it, as on a Mac sheet. */
+  onSubmit?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -112,6 +114,8 @@ export function Sheet({ title, subtitle, children, footer, onClose, wide }: {
     first?.focus();
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); }
+      const t = e.target as HTMLElement;
+      if (e.key === "Enter" && onSubmit && !/^(TEXTAREA|BUTTON|SELECT)$/.test(t.tagName)) { e.preventDefault(); onSubmit(); }
       if (e.key === "Tab" && ref.current) {
         const f = Array.from(ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select, textarea, [tabindex='0']"));
         if (!f.length) return;
@@ -122,7 +126,7 @@ export function Sheet({ title, subtitle, children, footer, onClose, wide }: {
     };
     window.addEventListener("keydown", key, true);
     return () => { window.removeEventListener("keydown", key, true); prev?.focus?.(); };
-  }, [onClose]);
+  }, [onClose, onSubmit]);
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div ref={ref} className={`sheet ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
@@ -156,8 +160,11 @@ export function SidebarItem({ icon, label, current, count, onClick }: { icon: Lu
 }
 
 /** Copyable link field. */
-export function CopyRow({ value, onCopy }: { value: string; onCopy: () => void }) {
+export function CopyRow({ value, label, onCopy }: { value: string; label: string; onCopy?: () => void }) {
   return (
-    <div className="copy-row"><code title={value}>{value}</code><Button onClick={onCopy}>Copy</Button></div>
+    <div className="stack">
+      <span className="callout secondary">{label}</span>
+      <div className="copy-row"><code title={value}>{value}</code>{onCopy && <Button onClick={onCopy}>Copy</Button>}</div>
+    </div>
   );
 }

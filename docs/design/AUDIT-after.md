@@ -107,3 +107,36 @@ Defects found and fixed during the redesign itself:
 - Sidebar vibrancy, traffic-light inset, the real menu bar and the overlay title bar in the bundled window: run `bash scripts/native-check.sh`.
 - The camera bubble with a real camera. The headless render uses Chromium's synthetic camera.
 - VoiceOver reading order in WKWebView.
+
+## Round 2 (design gate fixes, 2026-10-19)
+
+The design gate passed at 52/60. These fixes followed it:
+1. **Shorts**
+   - fixed 232 to 264px columns
+   - two-line title that is still renamed in place
+   - headline-size score pill, accent-tinted at 8 or more
+   - previews paused on a mid-clip frame instead of the often-dark first frame
+2. **Transcript**
+   - sentence rows in the app and on the watch page: they end at . ? or ! (also mid-cue, with the start time estimated) or before a 1.5s pause
+   - the active row is highlighted and kept in view while playing
+   - 44px tabular time column
+   - `npm test` checks the rule
+3. **Sheets**
+   - Export has Cancel (Esc) and Export as the default button (Return)
+   - formats read SRT Subtitles and WebVTT Subtitles
+   - Share labels the field "This Mac only" while the public link is off; once it's on, Copy Link is the default
+4. **Recording pill**
+   - real display names from the system, with "Display N" as the fallback (unit tested)
+   - the microphone toggle and its menu form one split button
+5. **Layout**
+   - solid sheet footers with a hairline above
+   - Suggest Clips moved into the Shorts toolbar
+   - toolbar titles take the free space
+   - trim times are typed as m:ss.s
+6. **Watch page**
+   - title, then date and duration, then the summary
+   - the caption picker sits in the Transcript header
+   - the app icon is the brand mark
+   - the dark background matches the app's #1e1e1e
+
+Detector after round 2: 0 findings on 80 app snapshots, 0 static, and 0 on the watch page at 1440, 900 and 390.

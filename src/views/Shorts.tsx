@@ -134,8 +134,15 @@ function ShortsEditor({ video, srv, onBack }: { video: Video; srv: string; onBac
         <IconButton icon={ChevronLeft} label="Back to Shorts" onClick={onBack} />
         <h1 className="title" data-tauri-drag-region>{video.title}</h1>
         <span className="spacer" data-tauri-drag-region />
+        {!hasTranscript
+          ? <Button kind="primary" disabled={!!busy} onClick={() => run("Transcribing", async () => { await api.transcribe(video.id); setHasTranscript(true); }, "Transcript ready. Now Claude can suggest clips.")}>Transcribe First</Button>
+          : <Button kind={clips.length ? "default" : "primary"} icon={Sparkles} disabled={!!busy} onClick={() => run("Claude is picking clips", async () => {
+              const r = await api.suggestShorts(video.id, limits); setFile(await api.shorts(video.id));
+              if (r.rejected.length) setStatus({ text: `Skipped ${r.rejected.length} suggestion(s) that broke the limits.` });
+            })}>{clips.length ? "Suggest Again" : "Suggest Clips"}</Button>}
         {clips.length > 0 && (
           <>
+            <span className="sep" />
             <Segmented label="Framing" value={framing} onChange={setFraming} options={[
               { value: "blur_fit", label: "Fit", title: "Whole frame over a blurred background" },
               { value: "center", label: "Crop", title: "Centre crop" },
@@ -155,20 +162,13 @@ function ShortsEditor({ video, srv, onBack }: { video: Video; srv: string; onBac
           <label>Clips {num("count", "Number of clips", 1, 20)}</label>
           <label>Length {num("min", "Shortest clip in seconds", 5)} to {num("max", "Longest clip in seconds", 5)} s</label>
           <label><Toggle label="Allow overlaps" checked={limits.allow_overlap} onChange={(on) => setLimits({ ...limits, allow_overlap: on })} />Allow overlaps</label>
-          <span className="spacer" />
-          {!hasTranscript
-            ? <Button kind="primary" disabled={!!busy} onClick={() => run("Transcribing", async () => { await api.transcribe(video.id); setHasTranscript(true); }, "Transcript ready. Now Claude can suggest clips.")}>Transcribe First</Button>
-            : <Button kind={clips.length ? "default" : "primary"} icon={Sparkles} disabled={!!busy} onClick={() => run("Claude is picking clips", async () => {
-                const r = await api.suggestShorts(video.id, limits); setFile(await api.shorts(video.id));
-                if (r.rejected.length) setStatus({ text: `Skipped ${r.rejected.length} suggestion(s) that broke the limits.` });
-              })}>{clips.length ? "Suggest Again" : "Suggest Clips"}</Button>}
         </div>
         <TaskStatus busy={busy || undefined} progress={progress} status={status} />
 
         {file && clips.length === 0 && !busy && (
           <div className="empty" style={{ height: "auto" }}>
             <h2 className="title3">No clips yet</h2>
-            <p>{hasTranscript ? "Set the limits above and let Claude suggest clips." : "Transcribe the video first. It runs on this Mac."}</p>
+            <p>{hasTranscript ? "Set the limits above, then Suggest Clips in the toolbar." : "Transcribe the video first. It runs on this Mac."}</p>
           </div>
         )}
 
@@ -222,7 +222,9 @@ function ShortCard({ clip, framing, bubble, src, busy, onChange, onNudge, onRero
   const onTime = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     if (e.currentTarget.currentTime >= clip.end) { all().forEach((v) => v.pause()); setPlaying(false); }
   };
-  const media = `${src}#t=${clip.start.toFixed(2)},${clip.end.toFixed(2)}`;
+  // The paused frame is mid-clip (a representative picture, not the often-dark first frame); Play starts at the clip start.
+  const mid = (clip.start + clip.end) / 2;
+  const media = `${src}#t=${mid.toFixed(2)},${clip.end.toFixed(2)}`;
   const mode = framing === "split" && !bubble ? "blur_fit" : framing;
 
   const menu = async () => {
@@ -257,13 +259,16 @@ function ShortCard({ clip, framing, bubble, src, busy, onChange, onNudge, onRero
           </div></div>
         )}
         <span className="pick"><Checkbox label={`Include ${clip.title}`} checked={clip.selected} onChange={(on) => onChange({ ...clip, selected: on })} /></span>
-        <span className="score" title={clip.score_reason}>{clip.score}/10</span>
+        <span className={`score ${clip.score >= 8 ? "high" : ""}`} title={clip.score_reason}>{clip.score}/10</span>
         <button type="button" className="play" aria-label={playing ? "Pause preview" : "Play preview"} onClick={toggle}>
           <span><Icon as={Play} size={20} /></span>
         </button>
       </div>
       <div className="hstack">
-        <input className="t" value={title} aria-label="Clip title" onChange={(e) => setTitle(e.target.value)} onBlur={() => title !== clip.title && onChange({ ...clip, title })} />
+        <textarea className="t" rows={2} value={title} aria-label="Clip title" spellCheck={false}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { setTitle(clip.title); e.currentTarget.blur(); } }}
+          onBlur={() => title.trim() && title !== clip.title && onChange({ ...clip, title: title.trim() })} />
         <IconButton icon={Ellipsis} label="Adjust clip" small onClick={menu} />
       </div>
       <span className="range">{mmss(clip.start)} to {mmss(clip.end)} · {Math.round(clip.end - clip.start)}s</span>

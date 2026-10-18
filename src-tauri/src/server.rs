@@ -31,6 +31,7 @@ pub async fn start() -> anyhow::Result<u16> {
         .route("/raw/{share}", get(raw))
         .route("/preview/{share}", get(preview))
         .route("/thumb/{share}", get(thumb))
+        .route("/brand.png", get(brand_mark))
         .route("/captions/{share}", get(captions))
         .route("/api/v/{share}", get(meta))
         .route("/api/v/{share}/ask", post(ask))
@@ -125,6 +126,18 @@ async fn thumb(Path(share): Path<String>, req: Request) -> Response {
     }
 }
 
+/// The app icon, shown as the brand mark on the watch page.
+async fn brand_mark() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../icons/64x64.png").as_slice(),
+    )
+        .into_response()
+}
+
 #[derive(Deserialize)]
 struct CaptionQuery {
     lang: Option<String>,
@@ -157,7 +170,7 @@ async fn meta(
         .map(|t| library::cues(&t.words))
         .unwrap_or_default();
     Ok(Json(json!({
-        "title": v.title, "summary": v.summary, "chapters": v.chapters, "duration": v.duration,
+        "title": v.title, "summary": v.summary, "chapters": v.chapters, "duration": v.duration, "created_at": v.created_at,
         "cues": cues,
         "languages": v.caption_langs.iter().map(|l| json!([l, crate::captions::language_name(l).unwrap_or(l)])).collect::<Vec<_>>(),
         "can_ask": v.has_transcript && (!is_public(&headers) || v.public_questions),

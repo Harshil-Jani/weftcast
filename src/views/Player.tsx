@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { Captions, ChevronLeft, Download, Ellipsis, Info, Link2, Maximize, PanelRight, Pause, Play, Sparkles } from "lucide-react";
-import { aiReady, api, base, brand, errText, isTyping, mmss, toProgress, type AiStatus, type Answer, type CutOptions, type CutPlan, type Progress, type VideoDetail } from "../lib/api";
+import { aiReady, api, base, brand, errText, isTyping, mmss, mmssd, parseTime, sentences, toProgress, type AiStatus, type Answer, type CutOptions, type CutPlan, type Progress, type VideoDetail } from "../lib/api";
 import { Button, CopyRow, Icon, IconButton, Row, Group, Segmented, Sheet, TaskStatus, Toggle, type Status } from "../components/ui";
 import { useCommand, type Command } from "../lib/recording";
 import VoicePanel from "./VoicePanel";
@@ -37,7 +37,15 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
   const [inspector, setInspector] = useState(stored);
   const [sharing, setSharing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [pub, setPub] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const rows = useMemo(() => (d ? sentences(d.cues) : []), [d]);
+  const activeRow = rows.findIndex(([a, b], i) => now >= a && (now < b + 0.3 || (rows[i + 1] && now < rows[i + 1][0])));
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Keep the spoken sentence in view while playing (not while the user browses a paused transcript).
+  useEffect(() => {
+    if (playing && activeRow >= 0) rowRefs.current[activeRow]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeRow, playing]);
 
   const load = useCallback(() => api.get(id).then((x) => { setD(x); setTitle(x.video.title); }), [id]);
   useEffect(() => {
@@ -45,6 +53,7 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
     base().then(setSrv);
     api.languages().then((l) => setLangNames(Object.fromEntries(l)));
     api.aiStatus().then(setAi);
+    api.shareStatus().then(setPub);
     const off = listen<{ id: string; stage: string; done: number; total: number }>("progress", (e) => {
       if (e.payload.id === id) setProgress(toProgress(e.payload));
     });
@@ -96,7 +105,6 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
   });
   const busy = !!task;
   const seek = (s: number) => { if (video.current) { video.current.currentTime = s; video.current.play(); } };
-  const activeCue = d.cues.findIndex(([a, b]) => now >= a && now < b + 0.3);
   const ready = aiReady(ai);
 
   const more = async () => {
@@ -207,8 +215,8 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
                 <section>
                   <h3>Transcript</h3>
                   <div className="lines selectable">
-                    {d.cues.map(([a, , text], i) => (
-                      <button key={i} type="button" className="line" aria-current={i === activeCue} onClick={() => seek(a)}><time>{mmss(a)}</time><span>{text}</span></button>
+                    {rows.map(([a, , text], i) => (
+                      <button key={i} ref={(el) => { rowRefs.current[i] = el; }} type="button" className="line" aria-current={i === activeRow} onClick={() => seek(a)}><time>{mmss(a)}</time><span>{text}</span></button>
                     ))}
                   </div>
                 </section>
@@ -242,12 +250,17 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
       </div>
 
       {exporting && <ExportSheet detail={d} onClose={() => setExporting(false)} />}
-      {sharing && (
-        <Sheet title="Share" subtitle={`The link plays "${v.title}" from this Mac. It works while ${brand.name} is running.`}
-          onClose={() => setSharing(false)} footer={<Button large kind="primary" onClick={() => setSharing(false)}>Done</Button>}>
-          <SharePanel detail={d} run={run} report={report} busy={busy} />
-        </Sheet>
-      )}
+      {sharing && (() => {
+        const copyLink = () => { if (pub) { writeText(`${pub}/v/${v.share_id}`); setStatus({ at: "share", text: "Link copied." }); } };
+        return (
+          <Sheet title="Share" subtitle={`The link plays "${v.title}" from this Mac. It works while ${brand.name} is running.`}
+            onClose={() => setSharing(false)} onSubmit={pub ? copyLink : () => setSharing(false)}
+            footer={pub ? <><Button large onClick={() => setSharing(false)}>Done</Button><Button large kind="primary" icon={Link2} onClick={copyLink}>Copy Link</Button></>
+              : <Button large kind="primary" onClick={() => setSharing(false)}>Done</Button>}>
+            <SharePanel detail={d} pub={pub} setPub={setPub} run={run} report={report} busy={busy} />
+          </Sheet>
+        );
+      })()}
     </>
   );
 }
@@ -306,11 +319,11 @@ function TrimSection({ id, duration, now, run, report, busy }: { id: string; dur
   const [trim, setTrim] = useState<[number, number]>([0, duration]);
   useEffect(() => setTrim([0, duration]), [duration]);
   const changed = trim[0] > 0.05 || trim[1] < duration - 0.05;
+  const set = (i: 0 | 1, x: number) => { const t = [...trim] as [number, number]; t[i] = Math.min(duration, Math.max(0, x)); setTrim(t); };
   const field = (i: 0 | 1, label: string) => (
     <Row label={label}>
-      <input className="field" type="number" step={0.1} min={0} max={duration} value={trim[i].toFixed(1)} aria-label={`${label} in seconds`}
-        onChange={(e) => { const t = [...trim] as [number, number]; t[i] = Number(e.target.value); setTrim(t); }} />
-      <Button kind="plain" onClick={() => { const t = [...trim] as [number, number]; t[i] = now; setTrim(t); }}>Set to Playhead</Button>
+      <TimeField value={trim[i]} label={`${label} time`} onChange={(x) => set(i, x)} />
+      <Button kind="plain" onClick={() => set(i, now)}>Set to Playhead</Button>
     </Row>
   );
   return (
@@ -326,11 +339,23 @@ function TrimSection({ id, duration, now, run, report, busy }: { id: string; dur
   );
 }
 
-function SharePanel({ detail, run, report, busy }: { detail: VideoDetail; run: Run; report: Report; busy: boolean }) {
+/** A time typed as m:ss.s; applied on Return or when focus leaves, reverted if it doesn't parse. */
+function TimeField({ value, label, onChange }: { value: number; label: string; onChange: (s: number) => void }) {
+  const [draft, setDraft] = useState(mmssd(value));
+  useEffect(() => setDraft(mmssd(value)), [value]);
+  const commit = () => { const t = parseTime(draft); if (t === null) setDraft(mmssd(value)); else onChange(t); };
+  return (
+    <input className="field time" value={draft} aria-label={label} inputMode="decimal"
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+  );
+}
+
+function SharePanel({ detail, pub, setPub, run, report, busy }: {
+  detail: VideoDetail; pub: string | null; setPub: (u: string | null) => void; run: Run; report: Report; busy: boolean;
+}) {
   const v = detail.video;
   const [srv, setSrv] = useState("");
-  const [pub, setPub] = useState<string | null>(null);
-  useEffect(() => { base().then(setSrv); api.shareStatus().then(setPub); }, []);
+  useEffect(() => { base().then(setSrv); }, []);
   const local = `${srv}/v/${v.share_id}`;
   const link = pub ? `${pub}/v/${v.share_id}` : null;
   return (
@@ -345,7 +370,7 @@ function SharePanel({ detail, run, report, busy }: { detail: VideoDetail; run: R
           <Toggle label="Viewers can ask questions" checked={v.public_questions} disabled={busy} onChange={(on) => run("share", "Saving", () => api.setPublicQuestions(v.id, on))} />
         </Row>
       </Group>
-      <CopyRow value={link ?? local} onCopy={() => writeText(link ?? local)} />
+      {link ? <CopyRow label="Public link" value={link} /> : <CopyRow label="This Mac only" value={local} onCopy={() => writeText(local)} />}
       <TaskStatus {...report("share")} />
     </>
   );
@@ -360,8 +385,8 @@ function ExportSheet({ detail, onClose }: { detail: VideoDetail; onClose: () => 
   const kinds: { k: Kind; label: string; note: string; needs?: boolean }[] = [
     { k: "mp4", label: "Video", note: "MP4" },
     { k: "captioned", label: "Video with captions", note: "MP4, burned in", needs: true },
-    { k: "srt", label: "Subtitles", note: "SRT", needs: true },
-    { k: "vtt", label: "Subtitles", note: "WebVTT", needs: true },
+    { k: "srt", label: "SRT Subtitles", note: "Editors and players", needs: true },
+    { k: "vtt", label: "WebVTT Subtitles", note: "Web players", needs: true },
   ];
   const go = async () => {
     setBusy(true); setStatus(null);
@@ -370,11 +395,11 @@ function ExportSheet({ detail, onClose }: { detail: VideoDetail; onClose: () => 
     finally { setBusy(false); }
   };
   return (
-    <Sheet title="Export" subtitle={`Saves "${v.title}" to your Downloads folder.`} onClose={onClose}
+    <Sheet title="Export" subtitle={`Saves "${v.title}" to your Downloads folder.`} onClose={onClose} onSubmit={() => { if (!busy) go(); }}
       footer={<>
         <span className="msg"><TaskStatus busy={busy ? "Exporting" : undefined} status={status} /></span>
-        <Button large onClick={onClose}>Done</Button>
-        <Button large kind="primary" disabled={busy} onClick={go}>Export</Button>
+        <Button large onClick={onClose} title="Esc">{status && !status.error ? "Done" : "Cancel"}</Button>
+        <Button large kind="primary" disabled={busy} onClick={go} title="Return">Export</Button>
       </>}>
       <div className="radio-list" role="radiogroup" aria-label="Format">
         {kinds.map(({ k, label, note, needs }) => (

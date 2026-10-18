@@ -72,8 +72,16 @@ pub fn reveal_video(id: String) -> Res<()> {
 }
 
 #[tauri::command]
-pub async fn devices() -> Res<Devices> {
-    capture::devices().await.map_err(e)
+pub async fn devices(app: AppHandle) -> Res<Devices> {
+    let mut d = capture::devices().await.map_err(e)?;
+    let names: Vec<String> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| m.name().cloned().unwrap_or_default())
+        .collect();
+    d.name_screens(&names);
+    Ok(d)
 }
 
 #[tauri::command]
