@@ -32,3 +32,6 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 once_cell = "1"
 dirs = "6"
+whisper-rs = { version = "0.16", features = ["metal"] }
+keyring = { version = "3", features = ["apple-native"] }
+sha2 = "0.10"

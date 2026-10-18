@@ -26,12 +26,16 @@ pub enum Provider {
 pub struct Settings {
     #[serde(default)]
     pub provider: Provider,
-    /// Optional. The ANTHROPIC_API_KEY environment variable wins when set.
-    #[serde(default)]
+    /// Legacy plain-text key from older versions; moved into the Keychain on load and never written.
+    #[serde(default, skip_serializing)]
     pub api_key: Option<String>,
     /// Voice level applied to new recordings when they are saved.
     #[serde(default)]
     pub voice_default: crate::voice::Voice,
+    #[serde(default)]
+    pub whisper_model: crate::transcribe::Model,
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 fn settings_path() -> std::path::PathBuf {
@@ -39,28 +43,72 @@ fn settings_path() -> std::path::PathBuf {
 }
 
 pub fn load_settings() -> Settings {
-    std::fs::read(settings_path())
+    let mut s: Settings = std::fs::read(settings_path())
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if let Some(k) = s.api_key.take().filter(|k| !k.is_empty())
+        && set_api_key(Some(&k)).is_ok()
+    {
+        let _ = save_settings(&s);
+    }
+    s
 }
 
 pub fn save_settings(s: &Settings) -> Result<()> {
     std::fs::create_dir_all(crate::library::root())?;
     std::fs::write(settings_path(), serde_json::to_vec_pretty(s)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(settings_path(), std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+fn keychain() -> Result<keyring::Entry> {
+    Ok(keyring::Entry::new(&BRAND.identifier, "anthropic-api-key")?)
+}
+
+/// Stores the key in the macOS Keychain (None removes it). Never written to a file.
+pub fn set_api_key(key: Option<&str>) -> Result<()> {
+    let e = keychain()?;
+    match key.map(str::trim).filter(|k| !k.is_empty()) {
+        Some(k) => e.set_password(k)?,
+        None => match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(err) => return Err(err.into()),
+        },
     }
     Ok(())
 }
 
-fn api_key(s: &Settings) -> Option<String> {
+fn api_key() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
-        .or_else(|| s.api_key.clone().filter(|k| !k.is_empty()))
+        .or_else(|| keychain().ok()?.get_password().ok())
+}
+
+pub fn api_key_saved() -> bool {
+    keychain()
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .is_some()
+}
+
+/// The user's own Claude Code CLI. GUI apps get a short PATH, so check the usual install places too.
+pub fn claude_path() -> Option<std::path::PathBuf> {
+    if let Some(p) = std::env::var_os("CLAUDE_PATH") {
+        return Some(p.into());
+    }
+    if let Some(p) = crate::media::on_path("claude") {
+        return Some(p);
+    }
+    let home = dirs::home_dir()?;
+    [
+        home.join(".local/bin/claude"),
+        home.join(".claude/local/claude"),
+        "/opt/homebrew/bin/claude".into(),
+        "/usr/local/bin/claude".into(),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
 }
 
 #[derive(Debug, Serialize)]
@@ -68,23 +116,39 @@ pub struct ProviderStatus {
     pub provider: Provider,
     pub cli_installed: bool,
     pub cli_version: Option<String>,
+    /// From `claude auth status --json`; only the loggedIn flag is read.
+    pub cli_logged_in: Option<bool>,
     pub api_key_set: bool,
     pub model: &'static str,
 }
 
 pub async fn status() -> ProviderStatus {
     let s = load_settings();
-    let v = tokio::process::Command::new("claude")
-        .arg("--version")
-        .output()
-        .await
-        .ok()
-        .filter(|o| o.status.success());
+    let v = match claude_path() {
+        Some(p) => tokio::process::Command::new(p),
+        None => tokio::process::Command::new("claude"),
+    }
+    .arg("--version")
+    .output()
+    .await
+    .ok()
+    .filter(|o| o.status.success());
+    let logged_in = match (&v, claude_path()) {
+        (Some(_), Some(p)) => tokio::process::Command::new(p)
+            .args(["auth", "status", "--json"])
+            .output()
+            .await
+            .ok()
+            .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+            .and_then(|j| j["loggedIn"].as_bool()),
+        _ => None,
+    };
     ProviderStatus {
         provider: s.provider,
+        cli_logged_in: logged_in,
         cli_installed: v.is_some(),
         cli_version: v.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()),
-        api_key_set: api_key(&s).is_some(),
+        api_key_set: api_key().is_some(),
         model: MODEL,
     }
 }
@@ -94,7 +158,7 @@ pub async fn ask_json(system: &str, user: &str, schema: &Value) -> Result<Value>
     let s = load_settings();
     match s.provider {
         Provider::Api => {
-            let key = api_key(&s).ok_or_else(|| anyhow!("No API key. Set ANTHROPIC_API_KEY or add one in Settings, or switch to the claude CLI."))?;
+            let key = api_key().ok_or_else(|| anyhow!("No API key. Set ANTHROPIC_API_KEY or add one in Settings, or switch to the claude CLI."))?;
             api_json(&key, system, user, schema).await
         }
         Provider::Cli => cli_json(system, user, schema).await,
@@ -149,7 +213,7 @@ async fn cli_json(system: &str, user: &str, schema: &Value) -> Result<Value> {
         "{system}\n\nReply with ONLY a JSON object, no prose and no code fences, matching this JSON Schema:\n{}\n\n{user}",
         serde_json::to_string(schema)?
     );
-    let mut child = tokio::process::Command::new("claude")
+    let mut child = tokio::process::Command::new(claude_path().unwrap_or_else(|| "claude".into()))
         .args(["-p", "--output-format", "json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

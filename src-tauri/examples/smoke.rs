@@ -45,11 +45,14 @@ async fn main() -> anyhow::Result<()> {
         library::video_path(&v.id).display()
     );
 
-    let t = transcribe::transcribe(&v.id, |d, t| {
-        if t > 0 && d % (16 << 20) < 65536 {
-            println!("model {}%", d * 100 / t)
-        }
-    })
+    let t = transcribe::transcribe(
+        &v.id,
+        std::sync::Arc::new(|stage: &str, d: u64, t: u64| {
+            if let Some(p) = (d * 100).checked_div(t) {
+                eprint!("\r{stage} {p}%   ")
+            }
+        }),
+    )
     .await?;
     println!(
         "transcript ({} words): {}",

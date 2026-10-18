@@ -4,17 +4,57 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, bail};
 
+use crate::brand::BRAND;
 use crate::cuts::{Range, Segment};
 
-/// ffmpeg from PATH, Homebrew or MacPorts. GUI apps on macOS do not inherit the shell PATH.
+/// Finds a bundled helper (ffmpeg, ffprobe, cloudflared, yt-dlp), in this order:
+/// 1. a developer override, e.g. RECORDER_FFMPEG=/path (prefix = brand slug, upper case)
+/// 2. for yt-dlp, a newer verified copy fetched by "Update YouTube importer"
+/// 3. the sidecar bundled next to the app's executable
+/// 4. dev builds only: src-tauri/binaries/<name>-<target>, then PATH
 pub fn tool(name: &str) -> PathBuf {
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"] {
-        let p = Path::new(dir).join(name);
-        if p.exists() {
+    let key = format!("{}_{}", BRAND.slug, name)
+        .to_uppercase()
+        .replace('-', "_");
+    if let Some(p) = std::env::var_os(&key) {
+        return PathBuf::from(p);
+    }
+    if name == "yt-dlp" {
+        let updated = crate::sidecars::updates_dir().join("yt-dlp");
+        if updated.exists() {
+            return updated;
+        }
+    }
+    if let Some(p) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join(name)))
+        .filter(|p| p.exists())
+    {
+        return p;
+    }
+    #[cfg(debug_assertions)]
+    {
+        let dev = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("binaries")
+            .join(format!("{name}-{}", env!("TARGET_TRIPLE")));
+        if dev.exists() {
+            return dev;
+        }
+        if let Some(p) = on_path(name) {
             return p;
         }
     }
     PathBuf::from(name)
+}
+
+pub fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+}
+
+pub fn available(name: &str) -> bool {
+    tool(name).is_file()
 }
 
 pub async fn run(name: &str, args: &[&str]) -> Result<String> {

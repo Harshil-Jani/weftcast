@@ -5,12 +5,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::ai::{self, Settings};
+use crate::ai;
 use crate::brand::{BRAND, Brand};
 use crate::capture::{self, Devices, RecState, StartOptions};
 use crate::cuts::{self, CutOptions, CutPlan};
 use crate::library::{self, Video};
-use crate::{AppState, media, share, transcribe, voice};
+use crate::{AppState, media, transcribe, voice};
 
 type Res<T> = Result<T, String>;
 fn e(err: impl std::fmt::Display) -> String {
@@ -147,25 +147,27 @@ struct Progress {
 
 #[tauri::command]
 pub async fn transcribe_video(app: AppHandle, id: String) -> Res<Value> {
-    let emit = |stage: &str, done: u64, total: u64| {
-        let _ = app.emit(
-            "progress",
-            Progress {
-                id: id.clone(),
-                stage: stage.into(),
-                done,
-                total,
-            },
-        );
-    };
-    emit("transcribing", 0, 0);
-    let t = transcribe::transcribe(&id, |d, t| emit("downloading speech model", d, t))
+    let (handle, vid) = (app.clone(), id.clone());
+    let progress: transcribe::Progress =
+        std::sync::Arc::new(move |stage: &str, done: u64, total: u64| {
+            let _ = handle.emit(
+                "progress",
+                Progress {
+                    id: vid.clone(),
+                    stage: stage.into(),
+                    done,
+                    total,
+                },
+            );
+        });
+    progress("transcribing", 0, 0);
+    let t = transcribe::transcribe(&id, progress.clone())
         .await
         .map_err(e)?;
     let mut v = library::load(&id).map_err(e)?;
     v.has_transcript = !t.words.is_empty();
     library::save(&v).map_err(e)?;
-    emit("done", 0, 0);
+    progress("done", 0, 0);
     get_video(id)
 }
 
@@ -326,11 +328,13 @@ pub async fn share_status(state: State<'_, AppState>) -> Res<Option<String>> {
 }
 
 #[tauri::command]
-pub fn get_settings() -> Settings {
-    let mut s = ai::load_settings();
-    // Never send the key back to the UI, only whether one is saved.
-    s.api_key = s.api_key.map(|_| "saved".into());
-    s
+pub fn get_settings() -> Value {
+    let s = ai::load_settings();
+    // Never send the key to the UI, only whether one is saved.
+    json!({
+        "provider": s.provider, "api_key": if ai::api_key_saved() { Some("saved") } else { None },
+        "voice_default": s.voice_default, "whisper_model": s.whisper_model, "onboarded": s.onboarded,
+    })
 }
 
 #[tauri::command]
@@ -338,20 +342,41 @@ pub fn save_settings(
     provider: ai::Provider,
     api_key: Option<String>,
     voice_default: Option<voice::Voice>,
+    whisper_model: Option<transcribe::Model>,
+    onboarded: Option<bool>,
 ) -> Res<()> {
     let mut s = ai::load_settings();
     s.provider = provider;
     if let Some(v) = voice_default {
         s.voice_default = v.clamped();
     }
+    if let Some(m) = whisper_model {
+        s.whisper_model = m;
+    }
+    if let Some(o) = onboarded {
+        s.onboarded = o;
+    }
     if let Some(k) = api_key {
-        s.api_key = if k.trim().is_empty() {
-            None
-        } else {
-            Some(k.trim().to_string())
-        };
+        ai::set_api_key(Some(&k)).map_err(e)?;
     }
     ai::save_settings(&s).map_err(e)
+}
+
+#[tauri::command]
+pub fn forget_api_key() -> Res<()> {
+    ai::set_api_key(None).map_err(e)
+}
+
+#[tauri::command]
+pub async fn install_model_file(path: String, model: transcribe::Model) -> Res<()> {
+    transcribe::install_model_from(std::path::Path::new(&path), model)
+        .await
+        .map_err(e)
+}
+
+#[tauri::command]
+pub async fn update_youtube_importer() -> Res<String> {
+    crate::sidecars::update_ytdlp().await.map_err(e)
 }
 
 #[tauri::command]
@@ -374,11 +399,15 @@ pub async fn test_claude() -> Res<String> {
 
 #[tauri::command]
 pub async fn tools_status() -> Value {
+    let m = transcribe::selected();
     json!({
-        "ffmpeg": media::tool("ffmpeg").exists(),
-        "whisper": transcribe::cli_ready(),
-        "model": transcribe::model_ready(),
-        "cloudflared": share::installed(),
+        "ffmpeg": media::available("ffmpeg") && media::available("ffprobe"),
+        "captions_burn": media::can_burn().await,
+        "model": transcribe::model_ready(m),
+        "model_name": m,
+        "model_mb": m.size_mb(),
+        "cloudflared": media::available("cloudflared"),
+        "ytdlp": media::available("yt-dlp"),
         "library": library::root(),
     })
 }

@@ -12,6 +12,7 @@ pub mod media;
 pub mod server;
 pub mod share;
 pub mod shorter;
+pub mod sidecars;
 pub mod transcribe;
 pub mod voice;
 
@@ -175,6 +176,9 @@ pub fn run() {
             commands::render_shorter,
             commands::translate_captions,
             commands::caption_languages,
+            commands::forget_api_key,
+            commands::install_model_file,
+            commands::update_youtube_importer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

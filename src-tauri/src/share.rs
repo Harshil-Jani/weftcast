@@ -15,7 +15,7 @@ pub struct Tunnel {
 }
 
 pub fn installed() -> bool {
-    media::tool("cloudflared").exists()
+    media::available("cloudflared")
 }
 
 impl Tunnel {
@@ -30,7 +30,7 @@ impl Tunnel {
             return Ok(url.clone());
         }
         if !installed() {
-            bail!("cloudflared is not installed. On macOS: brew install cloudflared");
+            bail!("The public-link helper is missing from this build. Reinstall the app.");
         }
         let mut child = Command::new(media::tool("cloudflared"))
             .args([
