@@ -58,7 +58,7 @@ export default function App() {
       </aside>
       <main className="content">
         {tab === "settings" ? <Settings /> : open ? (
-          <Player id={open} onBack={() => { setOpen(null); refresh(); }} onDeleted={() => { setOpen(null); refresh(); }} />
+          <Player key={open} id={open} onBack={() => { setOpen(null); refresh(); }} onDeleted={() => { setOpen(null); refresh(); }} onOpen={(n) => { refresh(); setOpen(n); }} />
         ) : (
           <Library videos={videos} srv={srv} onOpen={setOpen} onNew={() => setNewRec(true)} />
         )}

@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::extract::{Path, Request};
+use axum::extract::{Path, Query, Request};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -125,18 +125,27 @@ async fn thumb(Path(share): Path<String>, req: Request) -> Response {
     }
 }
 
-async fn captions(Path(share): Path<String>) -> Response {
+#[derive(Deserialize)]
+struct CaptionQuery {
+    lang: Option<String>,
+}
+
+async fn captions(Path(share): Path<String>, Query(q): Query<CaptionQuery>) -> Response {
     let Ok(v) = find(&share) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let words = library::load_transcript(&v.id)
-        .map(|t| t.words)
-        .unwrap_or_default();
-    (
-        [(header::CONTENT_TYPE, "text/vtt; charset=utf-8")],
-        library::to_vtt(&words),
-    )
-        .into_response()
+    let body = match q.lang.as_deref() {
+        Some(lang) if v.caption_langs.iter().any(|l| l == lang) => {
+            std::fs::read_to_string(crate::captions::track_path(&v.id, lang)).unwrap_or_default()
+        }
+        _ => {
+            let words = library::load_transcript(&v.id)
+                .map(|t| t.words)
+                .unwrap_or_default();
+            library::to_vtt(&words)
+        }
+    };
+    ([(header::CONTENT_TYPE, "text/vtt; charset=utf-8")], body).into_response()
 }
 
 async fn meta(
@@ -149,7 +158,9 @@ async fn meta(
         .unwrap_or_default();
     Ok(Json(json!({
         "title": v.title, "summary": v.summary, "chapters": v.chapters, "duration": v.duration,
-        "cues": cues, "can_ask": v.has_transcript && (!is_public(&headers) || v.public_questions),
+        "cues": cues,
+        "languages": v.caption_langs.iter().map(|l| json!([l, crate::captions::language_name(l).unwrap_or(l)])).collect::<Vec<_>>(),
+        "can_ask": v.has_transcript && (!is_public(&headers) || v.public_questions),
     })))
 }
 

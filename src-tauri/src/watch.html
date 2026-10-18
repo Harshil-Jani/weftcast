@@ -18,6 +18,8 @@
   h1 { color: var(--ink); font-size: 24px; line-height: 1.25; margin: 18px 0 8px; letter-spacing: -0.01em; }
   video { width: 100%; border-radius: 14px; background: #000; display: block; aspect-ratio: 16 / 10; }
   .summary { margin: 0 0 16px; }
+  .langs { margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .langs select { margin-left: 6px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
   .card { border: 1px solid var(--line); border-radius: 14px; background: var(--soft); padding: 14px 16px; margin-bottom: 16px; }
   .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
   .chap, .cue { display: flex; gap: 10px; width: 100%; text-align: left; background: none; border: 0; padding: 6px 4px; border-radius: 8px; color: var(--body); font: inherit; cursor: pointer; }
@@ -40,6 +42,7 @@
 <main>
   <section>
     <video id="v" controls playsinline preload="metadata"></video>
+    <div class="langs" id="langs" hidden><label>Captions <select id="lang"></select></label></div>
     <h1 id="title"></h1>
     <p class="summary" id="summary"></p>
   </section>
@@ -84,6 +87,17 @@
       v.addEventListener("timeupdate", () => els.forEach(([a, e], i) => e.classList.toggle("on", v.currentTime >= a && (i + 1 >= els.length || v.currentTime < els[i + 1][0]))));
     }
     $("ask-card").hidden = !m.can_ask;
+    if (m.languages.length) {
+      const sel = $("lang");
+      [["en", "English"], ...m.languages, ["off", "Off"]].forEach(([code, name]) => sel.append(new Option(name, code)));
+      m.languages.forEach(([code, name]) => {
+        const tr = document.createElement("track");
+        Object.assign(tr, { kind: "captions", label: name, srclang: code, src: "/captions/" + SHARE + ".vtt?lang=" + code });
+        v.appendChild(tr);
+      });
+      sel.onchange = () => Array.from(v.textTracks).forEach((t) => { t.mode = t.language === sel.value ? "showing" : "hidden"; });
+      $("langs").hidden = false;
+    }
   });
   $("ask").onsubmit = async (e) => {
     e.preventDefault();

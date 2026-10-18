@@ -1,12 +1,17 @@
+pub mod agent;
 pub mod ai;
 pub mod brand;
+pub mod captions;
 pub mod capture;
 mod commands;
 pub mod cuts;
+pub mod edits;
+pub mod export;
 pub mod library;
 pub mod media;
 pub mod server;
 pub mod share;
+pub mod shorter;
 pub mod transcribe;
 pub mod voice;
 
@@ -163,6 +168,13 @@ pub fn run() {
             commands::set_voice,
             commands::voice_stats,
             commands::voice_preview,
+            commands::plan_edit,
+            commands::apply_plan,
+            commands::undo_edit,
+            commands::plan_shorter,
+            commands::render_shorter,
+            commands::translate_captions,
+            commands::caption_languages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the app");

@@ -7,13 +7,16 @@ export type Chapter = { start: number; title: string };
 export type Video = {
   id: string; share_id: string; title: string; created_at: string; duration: number;
   summary: string | null; chapters: Chapter[]; has_transcript: boolean; public_questions: boolean; edited: boolean;
-  voice: Voice;
+  voice: Voice; notes: Note[]; caption_langs: string[];
 };
+export type Note = { time: number; text: string };
+export type EditPlan = { ops: Record<string, unknown>[]; explanation: string };
+export type ShortPlan = { ranges: Range[]; length: number; explanation: string };
 export type Voice = { gain_db: number; auto: boolean };
 export type Level = { lufs: number; true_peak: number };
 export type VoiceStats = { raw: Level; applied: Level | null; predicted_peak: number; clips: boolean };
 export type Cue = [number, number, string];
-export type VideoDetail = { video: Video; cues: Cue[]; has_original: boolean };
+export type VideoDetail = { video: Video; cues: Cue[]; has_original: boolean; can_undo: boolean };
 export type Device = { index: string; name: string };
 export type Devices = { screens: Device[]; mics: Device[] };
 export type StartOptions = { screen: string; mic: string | null };
@@ -59,6 +62,13 @@ export const api = {
   saveSettings: (provider: Provider, apiKey: string | null, voiceDefault?: Voice) => invoke<void>("save_settings", { provider, apiKey, voiceDefault: voiceDefault ?? null }),
   setVoice: (id: string, voice: Voice) => invoke<Video>("set_voice", { id, voice }),
   voiceStats: (id: string, voice: Voice) => invoke<VoiceStats>("voice_stats", { id, voice }),
+  planEdit: (id: string, prompt: string) => invoke<{ plan: EditPlan; lines: string[] }>("plan_edit", { id, prompt }),
+  applyPlan: (id: string, plan: EditPlan) => invoke<Video>("apply_plan", { id, plan }),
+  undoEdit: (id: string) => invoke<Video>("undo_edit", { id }),
+  planShorter: (id: string, target: number) => invoke<ShortPlan>("plan_shorter", { id, target }),
+  renderShorter: (id: string, ranges: Range[]) => invoke<Video>("render_shorter", { id, ranges }),
+  translate: (id: string, lang: string) => invoke<Video>("translate_captions", { id, lang }),
+  languages: () => invoke<[string, string][]>("caption_languages"),
   voicePreview: (id: string, voice: Voice, start: number) => invoke<void>("voice_preview", { id, voice, start }),
   aiStatus: () => invoke<AiStatus>("ai_status"),
   testClaude: () => invoke<string>("test_claude"),

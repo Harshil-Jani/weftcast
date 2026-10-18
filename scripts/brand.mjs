@@ -60,6 +60,19 @@ if (pkg.name !== brand.slug) {
 const readmePath = join(root, "README.md");
 const readme = readFileSync(readmePath, "utf8").split("\n");
 readme[0] = `# ${brand.name}`;
-writeFileSync(readmePath, readme.join("\n"));
+let readmeText = readme.join("\n");
+const mcp = [
+  "<!-- brand:mcp -->",
+  "```bash",
+  "cd src-tauri && cargo build --release --bin cli",
+  `claude mcp add ${brand.slug} -- "$PWD/target/release/cli" mcp`,
+  "```",
+  "",
+  `Then ask Claude Code things like "list my ${brand.name} videos" or "cut the first 10 seconds of my latest recording".`,
+  "The same tool works without an agent: `cli list`, `cli transcript ID`, `cli plan ID \"remove the intro\"`, `cli apply ID plan.json --preview`.",
+  "<!-- /brand:mcp -->",
+].join("\n");
+readmeText = readmeText.replace(/<!-- brand:mcp -->[\s\S]*?<!-- \/brand:mcp -->/, mcp);
+writeFileSync(readmePath, readmeText);
 
 console.log(`brand: ${brand.name} (${brand.identifier})`);

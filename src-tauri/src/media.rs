@@ -4,7 +4,7 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, bail};
 
-use crate::cuts::Range;
+use crate::cuts::{Range, Segment};
 
 /// ffmpeg from PATH, Homebrew or MacPorts. GUI apps on macOS do not inherit the shell PATH.
 pub fn tool(name: &str) -> PathBuf {
@@ -171,27 +171,80 @@ pub async fn render_keep(input: &Path, out: &Path, keep: &[Range]) -> Result<()>
 }
 
 /// trim/atrim each kept range and concat them, so video and audio are cut identically.
-/// ponytail: one filter chain per range; fine for hundreds of cuts, split into passes if it ever gets huge.
 /// With `voice`, the audio filter chain runs once on the joined audio.
 pub fn keep_filter(keep: &[Range], voice: Option<&str>) -> String {
+    let segs: Vec<Segment> = keep
+        .iter()
+        .map(|r| Segment {
+            start: r.start,
+            end: r.end,
+            speed: 1.0,
+        })
+        .collect();
+    timeline_filter(&segs, voice)
+}
+
+/// The general form: each segment is trimmed, optionally sped up or slowed down, then all are joined.
+/// ponytail: one filter chain per segment; fine for hundreds of segments, split into passes if it ever gets huge.
+pub fn timeline_filter(segs: &[Segment], voice: Option<&str>) -> String {
     let mut g = String::new();
-    for (i, r) in keep.iter().enumerate() {
-        g += &format!(
-            "[0:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS[a{i}];",
-            s = r.start,
-            e = r.end
-        );
-    }
-    let inputs: String = (0..keep.len()).map(|i| format!("[v{i}][a{i}]")).collect();
-    match voice {
-        None => g + &format!("{inputs}concat=n={}:v=1:a=1[v][a]", keep.len()),
-        Some(af) => {
-            g + &format!(
-                "{inputs}concat=n={}:v=1:a=1[v][acat];[acat]{af}[a]",
-                keep.len()
-            )
+    for (i, r) in segs.iter().enumerate() {
+        let (s, e) = (r.start, r.end);
+        if (r.speed - 1.0).abs() < 1e-6 {
+            g += &format!(
+                "[0:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS[a{i}];"
+            );
+        } else {
+            g += &format!(
+                "[0:v]trim=start={s:.3}:end={e:.3},setpts=(PTS-STARTPTS)/{f}[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS,{t}[a{i}];",
+                f = r.speed,
+                t = atempo(r.speed)
+            );
         }
     }
+    let n = segs.len();
+    let inputs: String = (0..n).map(|i| format!("[v{i}][a{i}]")).collect();
+    match voice {
+        None => g + &format!("{inputs}concat=n={n}:v=1:a=1[v][a]"),
+        Some(af) => g + &format!("{inputs}concat=n={n}:v=1:a=1[v][acat];[acat]{af}[a]"),
+    }
+}
+
+/// atempo is most accurate between 0.5 and 2, so larger changes are chained.
+pub fn atempo(speed: f64) -> String {
+    let mut left = speed;
+    let mut parts = Vec::new();
+    while left > 2.0 + 1e-9 {
+        parts.push("atempo=2".to_string());
+        left /= 2.0;
+    }
+    while left < 0.5 - 1e-9 {
+        parts.push("atempo=0.5".to_string());
+        left /= 0.5;
+    }
+    parts.push(format!("atempo={}", (left * 1000.0).round() / 1000.0));
+    parts.join(",")
+}
+
+pub async fn render_timeline(input: &Path, out: &Path, segs: &[Segment]) -> Result<()> {
+    anyhow::ensure!(!segs.is_empty(), "nothing would be left of the video");
+    let graph = timeline_filter(segs, None);
+    let mut args = vec![
+        "-y",
+        "-i",
+        input.to_str().unwrap_or_default(),
+        "-filter_complex",
+        &graph,
+        "-map",
+        "[v]",
+        "-map",
+        "[a]",
+    ];
+    args.extend_from_slice(ENCODE);
+    let o = out.to_string_lossy();
+    args.push(&o);
+    run("ffmpeg", &args).await?;
+    Ok(())
 }
 
 /// Re-encodes only the audio through `af`; the video stream is copied, so it is fast and lossless.
@@ -343,5 +396,34 @@ mod tests {
         assert!(g.contains("[0:v]trim=start=0.000:end=1.500,setpts=PTS-STARTPTS[v0]"));
         assert!(g.contains("[0:a]atrim=start=3.000:end=4.250,asetpts=PTS-STARTPTS[a1]"));
         assert!(g.ends_with("[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"));
+    }
+
+    #[test]
+    fn speed_segments_retime_video_and_audio() {
+        let g = timeline_filter(
+            &[
+                Segment {
+                    start: 0.0,
+                    end: 5.0,
+                    speed: 1.0,
+                },
+                Segment {
+                    start: 5.0,
+                    end: 25.0,
+                    speed: 2.0,
+                },
+            ],
+            None,
+        );
+        assert!(g.contains("[0:v]trim=start=5.000:end=25.000,setpts=(PTS-STARTPTS)/2[v1]"));
+        assert!(g.contains("asetpts=PTS-STARTPTS,atempo=2[a1]"));
+    }
+
+    #[test]
+    fn atempo_chains_outside_half_to_double() {
+        assert_eq!(atempo(1.5), "atempo=1.5");
+        assert_eq!(atempo(4.0), "atempo=2,atempo=2");
+        assert_eq!(atempo(3.0), "atempo=2,atempo=1.5");
+        assert_eq!(atempo(0.25), "atempo=0.5,atempo=0.5");
     }
 }

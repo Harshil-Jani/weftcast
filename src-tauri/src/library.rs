@@ -7,10 +7,17 @@ use serde::{Deserialize, Serialize};
 use crate::brand::BRAND;
 use crate::cuts::Word;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Chapter {
     pub start: f64,
     pub title: String,
+}
+
+/// A comment pinned to a moment in the video.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct Note {
+    pub time: f64,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -41,6 +48,11 @@ pub struct Video {
     /// Voice loudness. Applied to a derived file; the raw audio is kept.
     #[serde(default)]
     pub voice: crate::voice::Voice,
+    #[serde(default)]
+    pub notes: Vec<Note>,
+    /// Extra caption languages (ISO codes) saved as captions.<lang>.vtt.
+    #[serde(default)]
+    pub caption_langs: Vec<String>,
 }
 
 pub fn root() -> PathBuf {

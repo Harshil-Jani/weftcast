@@ -8,6 +8,32 @@ pub struct Range {
     pub end: f64,
 }
 
+/// A kept piece of the source, played back at `speed` (1 = normal).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Segment {
+    pub start: f64,
+    pub end: f64,
+    pub speed: f64,
+}
+
+impl Segment {
+    pub fn out_len(&self) -> f64 {
+        (self.end - self.start) / self.speed
+    }
+}
+
+/// Maps a source time to its time in the edited video, or None if it was cut.
+pub fn map_time(segs: &[Segment], t: f64) -> Option<f64> {
+    let mut out = 0.0;
+    for s in segs {
+        if t >= s.start && t <= s.end {
+            return Some(out + (t - s.start) / s.speed);
+        }
+        out += s.out_len();
+    }
+    None
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Word {
     pub start: f64,
@@ -275,6 +301,91 @@ mod tests {
                     end: 10.0
                 }
             ]
+        );
+    }
+}
+
+/// Sentences as (start, end) spans, split where a word ends in . ? or ! or after a long pause.
+pub fn sentences(words: &[Word]) -> Vec<Range> {
+    let mut out = Vec::new();
+    let mut start: Option<f64> = None;
+    for (i, w) in words.iter().enumerate() {
+        let s = *start.get_or_insert(w.start);
+        let ends = w.text.trim_end().ends_with(['.', '?', '!']);
+        let pause = words.get(i + 1).is_some_and(|n| n.start - w.end > 1.0);
+        if ends || pause || i + 1 == words.len() {
+            out.push(Range {
+                start: s,
+                end: w.end,
+            });
+            start = None;
+        }
+    }
+    out
+}
+
+/// Moves a range's edges to the nearest sentence start and end.
+pub fn snap_to_sentences(r: Range, sents: &[Range]) -> Range {
+    let near = |t: f64, pick: fn(&Range) -> f64| {
+        sents
+            .iter()
+            .map(pick)
+            .min_by(|a, b| (a - t).abs().total_cmp(&(b - t).abs()))
+            .unwrap_or(t)
+    };
+    let start = near(r.start, |s| s.start);
+    let end = near(r.end, |s| s.end);
+    if end > start { Range { start, end } } else { r }
+}
+
+#[cfg(test)]
+mod sentence_tests {
+    use super::*;
+
+    #[test]
+    fn splits_and_snaps_sentences() {
+        let w = |s: f64, e: f64, t: &str| Word {
+            start: s,
+            end: e,
+            text: t.into(),
+        };
+        let words = vec![
+            w(0.0, 0.5, "Hi"),
+            w(0.5, 1.0, "there."),
+            w(1.2, 1.6, "Next"),
+            w(1.6, 2.0, "part!"),
+            w(4.0, 4.5, "Late"),
+        ];
+        let s = sentences(&words);
+        assert_eq!(
+            s,
+            vec![
+                Range {
+                    start: 0.0,
+                    end: 1.0
+                },
+                Range {
+                    start: 1.2,
+                    end: 2.0
+                },
+                Range {
+                    start: 4.0,
+                    end: 4.5
+                }
+            ]
+        );
+        assert_eq!(
+            snap_to_sentences(
+                Range {
+                    start: 0.3,
+                    end: 1.9
+                },
+                &s
+            ),
+            Range {
+                start: 0.0,
+                end: 2.0
+            }
         );
     }
 }

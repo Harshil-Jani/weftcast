@@ -3,11 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, base, errText, mmss, type Answer, type CutOptions, type CutPlan, type VideoDetail } from "../lib/api";
 import VoicePanel from "./VoicePanel";
+import { MakeShorter, PromptEdit, TranslateCaptions } from "./AiPanels";
 
-type Props = { id: string; onBack: () => void; onDeleted: () => void };
+type Props = { id: string; onBack: () => void; onDeleted: () => void; onOpen: (id: string) => void };
 const DEFAULT_CUTS: CutOptions = { remove_fillers: true, remove_silences: true, min_silence: 0.8, pad: 0.2 };
 
-export default function Player({ id, onBack, onDeleted }: Props) {
+export default function Player({ id, onBack, onDeleted, onOpen }: Props) {
+  const [capLang, setCapLang] = useState("en");
+  const [langNames, setLangNames] = useState<Record<string, string>>({});
   const [d, setD] = useState<VideoDetail | null>(null);
   const [srv, setSrv] = useState("");
   const [busy, setBusy] = useState("");
@@ -28,6 +31,7 @@ export default function Player({ id, onBack, onDeleted }: Props) {
     load();
     base().then(setSrv);
     api.shareStatus().then(setPublicUrl);
+    api.languages().then((l) => setLangNames(Object.fromEntries(l)));
     const off = listen<{ id: string; stage: string; done: number; total: number }>("progress", (e) => {
       if (e.payload.id !== id) return;
       const { stage, done, total } = e.payload;
@@ -65,8 +69,23 @@ export default function Player({ id, onBack, onDeleted }: Props) {
         <section>
           <video ref={video} key={src} src={srv ? src : undefined} controls poster={srv ? `${srv}/thumb/${v.share_id}.jpg?d=${v.duration}` : undefined}
             onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} crossOrigin="anonymous">
-            {d.cues.length > 0 && <track kind="captions" label="English" srcLang="en" default src={`${srv}/captions/${v.share_id}.vtt?d=${v.duration}`} />}
+            {d.cues.length > 0 && <track kind="captions" label="English" srcLang="en" default={capLang === "en"} src={`${srv}/captions/${v.share_id}.vtt?d=${v.duration}`} />}
+            {v.caption_langs.map((l) => <track key={l} kind="captions" label={langNames[l] ?? l} srcLang={l} default={capLang === l} src={`${srv}/captions/${v.share_id}.vtt?lang=${l}&d=${v.duration}`} />)}
           </video>
+          {v.caption_langs.length > 0 && (
+            <div className="row caption-picker">
+              <span className="muted small">Captions</span>
+              <select value={capLang} onChange={(e) => {
+                setCapLang(e.target.value);
+                const tracks = video.current?.textTracks;
+                if (tracks) for (const t of Array.from(tracks)) t.mode = e.target.value !== "off" && t.language === e.target.value ? "showing" : "hidden";
+              }}>
+                <option value="en">English</option>
+                {v.caption_langs.map((l) => <option key={l} value={l}>{langNames[l] ?? l}</option>)}
+                <option value="off">Off</option>
+              </select>
+            </div>
+          )}
           <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)}
             onBlur={() => title !== v.title && run("rename", () => api.rename(id, title))} />
           <p className="muted small">{mmss(v.duration)} · {new Date(v.created_at).toLocaleString()}{v.edited ? " · edited" : ""}</p>
@@ -75,11 +94,15 @@ export default function Player({ id, onBack, onDeleted }: Props) {
           {(busy || progress) && <p className="muted">{progress || `${busy}...`}</p>}
 
           <div className="actions">
+            <PromptEdit video={v} busy={busy} run={run} canUndo={d.can_undo} />
+            <MakeShorter video={v} busy={busy} run={run} seek={seek} onCreated={(s) => onOpen(s.id)} />
+
             <Panel title="Transcript and AI">
               {!v.has_transcript
                 ? <button className="primary" disabled={!!busy} onClick={() => run("Transcribing", () => api.transcribe(id), "Transcript ready.")}>Transcribe (on this computer)</button>
                 : <button className="primary" disabled={!!busy} onClick={() => run("Claude is writing", () => api.insights(id), "Title, summary and chapters updated.")}>Write title, summary and chapters</button>}
               {v.has_transcript && <button disabled={!!busy} onClick={() => run("Transcribing", () => api.transcribe(id), "Transcript refreshed.")}>Transcribe again</button>}
+              {v.has_transcript && <TranslateCaptions video={v} busy={busy} run={run} />}
             </Panel>
 
             <VoicePanel video={v} player={video} onSaved={() => { load(); setMsg({ text: "Voice applied to shares and exports." }); }} />

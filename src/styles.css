@@ -120,3 +120,12 @@ nav button.on { background: var(--bg); border: 1px solid var(--line); }
 .warn { color: #b26a00; }
 @media (prefers-color-scheme: dark) { .warn { color: #f5a524; } }
 audio.preview { width: 100%; }
+
+.prompt-edit form { display: grid; gap: 8px; }
+textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; resize: vertical; }
+.diff { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; display: grid; gap: 6px; }
+.diff ul { margin: 0; padding-left: 18px; }
+.diff li { color: var(--ink); }
+button.chip { padding: 4px 10px; border-radius: 999px; }
+button.chip.on { border-color: var(--accent); color: var(--accent); }
+.caption-picker { margin-top: 8px; }

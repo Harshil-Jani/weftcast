@@ -40,6 +40,7 @@ pub fn get_video(id: String) -> Res<Value> {
         "video": v,
         "cues": t.as_ref().map(|t| library::cues(&t.words)).unwrap_or_default(),
         "has_original": library::exists(&library::original_path(&id)),
+        "can_undo": crate::edits::can_undo(&id),
     }))
 }
 
@@ -290,69 +291,9 @@ pub async fn restore_original(id: String) -> Res<Video> {
     Ok(v)
 }
 
-fn export_path(v: &Video, ext: &str) -> PathBuf {
-    let safe: String = v
-        .title
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == ' ' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    dirs::download_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(format!("{}.{ext}", safe.trim()))
-}
-
 #[tauri::command]
 pub async fn export_video(id: String, kind: String) -> Res<Value> {
-    let v = library::load(&id).map_err(e)?;
-    let words = library::load_transcript(&id)
-        .map(|t| t.words)
-        .unwrap_or_default();
-    let src = library::playable_path(&id);
-    let mut note = None;
-    let out = match kind.as_str() {
-        "mp4" => {
-            let out = export_path(&v, "mp4");
-            tokio::fs::copy(&src, &out).await.map_err(e)?;
-            out
-        }
-        "srt" | "vtt" => {
-            if words.is_empty() {
-                return Err("Transcribe the video first.".into());
-            }
-            let out = export_path(&v, &kind);
-            let body = if kind == "srt" {
-                library::to_srt(&words)
-            } else {
-                library::to_vtt(&words)
-            };
-            tokio::fs::write(&out, body).await.map_err(e)?;
-            out
-        }
-        "captioned" => {
-            if words.is_empty() {
-                return Err("Transcribe the video first.".into());
-            }
-            let srt = library::dir(&id).join("captions.srt");
-            tokio::fs::write(&srt, library::to_srt(&words))
-                .await
-                .map_err(e)?;
-            let out = export_path(&v, "mp4");
-            if media::can_burn().await {
-                media::burn_captions(&src, &srt, &out).await.map_err(e)?;
-            } else {
-                media::embed_captions(&src, &srt, &out).await.map_err(e)?;
-                note = Some("Your ffmpeg can't draw text, so captions were added as a track viewers can turn on (CC). For burned-in captions install an ffmpeg built with libass.".to_string());
-            }
-            out
-        }
-        _ => return Err("unknown export".into()),
-    };
+    let (out, note) = crate::export::run(&id, &kind).await.map_err(e)?;
     let _ = std::process::Command::new("open")
         .arg("-R")
         .arg(&out)
@@ -479,4 +420,53 @@ pub async fn voice_preview(id: String, voice: voice::Voice, start: f64) -> Res<(
         .await
         .map(|_| ())
         .map_err(e)
+}
+
+#[tauri::command]
+pub async fn plan_edit(id: String, prompt: String) -> Res<Value> {
+    let v = library::load(&id).map_err(e)?;
+    let t = library::load_transcript(&id);
+    let plan = crate::edits::plan_from_prompt(&v, t.as_ref(), &prompt)
+        .await
+        .map_err(e)?;
+    Ok(json!({ "plan": plan, "lines": crate::edits::describe(&plan, v.duration) }))
+}
+
+#[tauri::command]
+pub async fn apply_plan(id: String, plan: Value) -> Res<Video> {
+    let v = library::load(&id).map_err(e)?;
+    let plan = crate::edits::validate(&plan, v.duration).map_err(e)?;
+    crate::edits::apply(&id, &plan).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn undo_edit(id: String) -> Res<Video> {
+    crate::edits::undo(&id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn plan_shorter(id: String, target: f64) -> Res<crate::shorter::ShortPlan> {
+    let v = library::load(&id).map_err(e)?;
+    let t = library::load_transcript(&id).ok_or("Transcribe the video first.")?;
+    crate::shorter::plan(&v, &t, target).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn render_shorter(id: String, ranges: Vec<crate::cuts::Range>) -> Res<Video> {
+    let v = library::load(&id).map_err(e)?;
+    crate::shorter::render(&v, &ranges).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn translate_captions(id: String, lang: String) -> Res<Video> {
+    crate::captions::translate(&id, &lang).await.map_err(e)?;
+    library::load(&id).map_err(e)
+}
+
+#[tauri::command]
+pub fn caption_languages() -> Vec<(String, String)> {
+    crate::captions::LANGUAGES
+        .iter()
+        .map(|(c, n)| (c.to_string(), n.to_string()))
+        .collect()
 }
