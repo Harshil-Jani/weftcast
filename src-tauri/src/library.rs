@@ -59,6 +59,22 @@ pub struct Video {
     /// The camera bubble as fractions of the frame (x, y, w, h), when it was on while recording.
     #[serde(default)]
     pub bubble: Option<(f64, f64, f64, f64)>,
+    /// Phone screen and phone camera tracks, already on the recording timeline.
+    #[serde(default)]
+    pub tracks: Vec<crate::phone::Track>,
+    /// Maps the current video's time back to recording time (empty: unedited), so tracks follow edits.
+    #[serde(default)]
+    pub timeline: Vec<crate::cuts::Segment>,
+    #[serde(default)]
+    pub phone: crate::phone::PhonePanel,
+    #[serde(default)]
+    pub angle: crate::phone::AnglePanel,
+    /// Wall-clock start of the screen recording (ms since 1970), to place tracks recorded elsewhere.
+    #[serde(default)]
+    pub rec_started_ms: u64,
+    /// Length of the recording before any edit.
+    #[serde(default)]
+    pub rec_duration: f64,
 }
 
 pub fn root() -> PathBuf {
@@ -92,7 +108,13 @@ pub fn preview_path(id: &str) -> PathBuf {
     dir(id).join("preview.mp4")
 }
 /// What viewers and exports get: the voiced file when there is one, else the raw edit.
+/// What viewers get: the phone layout if there is one, else the voice-levelled video, else the raw one.
 pub fn playable_path(id: &str) -> PathBuf {
+    let c = dir(id).join("composed.mp4");
+    if exists(&c) { c } else { voiced_or_video(id) }
+}
+/// The screen recording with the voice level applied, without any phone layout.
+pub fn voiced_or_video(id: &str) -> PathBuf {
     let v = voiced_path(id);
     if exists(&v) { v } else { video_path(id) }
 }

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>__BRAND_NAME__ on your phone</title>
+<style>
+  /* Same language as the desktop app, adapted for a phone. */
+  :root {
+    --accent: #6d5efc;
+    --accent-fill: color-mix(in oklab, var(--accent) 86%, black);
+    --accent-text: color-mix(in oklab, var(--accent) 78%, black);
+    --bg: #f2f2f7; --group: #ffffff; --fill: rgba(118, 118, 128, 0.12); --separator: rgba(60, 60, 67, 0.18);
+    --label: #1d1d1f; --label-2: #636366; --red: #c4001a; --recording: #ff3b30;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent-text: color-mix(in oklab, var(--accent) 62%, white);
+      --bg: #1e1e1e; --group: #2c2c2e; --fill: rgba(118, 118, 128, 0.24); --separator: rgba(84, 84, 88, 0.6);
+      --label: #f5f5f7; --label-2: #a1a1a6; --red: #ff6961;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--label); font: 17px/1.4 var(--font); min-height: 100dvh; padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px); }
+  header { display: flex; align-items: center; gap: 10px; padding: 16px 0; font: 600 17px/1 var(--font); }
+  header img { width: 28px; height: 28px; border-radius: 7px; }
+  .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--fill); margin-bottom: 16px; }
+  .seg button { flex: 1; height: 32px; border: 0; border-radius: 7px; background: transparent; color: var(--label); font: 500 15px var(--font); }
+  .seg button[aria-selected="true"] { background: var(--group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); font-weight: 600; }
+  .preview { position: relative; aspect-ratio: 3 / 4; border-radius: 16px; overflow: hidden; background: #000; }
+  .preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .preview video.mirror { transform: scaleX(-1); }
+  .preview .chip { position: absolute; top: 12px; left: 12px; padding: 4px 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 600 13px var(--font); }
+  .row { display: flex; gap: 12px; margin-top: 16px; }
+  button.big { flex: 1; height: 50px; border: 0; border-radius: 12px; font: 600 17px var(--font); background: var(--group); color: var(--label); }
+  button.primary { background: var(--accent-fill); color: #fff; }
+  button.rec { background: var(--recording); color: #fff; }
+  button.danger { color: var(--red); }
+  button:disabled { opacity: 0.45; }
+  :focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+  .note { color: var(--label-2); font-size: 15px; margin: 12px 4px 0; }
+  .error { color: var(--red); font-size: 15px; margin: 12px 4px 0; }
+  .timer { text-align: center; font: 600 64px/1 var(--font); font-variant-numeric: tabular-nums; margin: 32px 0 8px; }
+  .state { text-align: center; color: var(--label-2); font-size: 15px; }
+  .meter { height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; margin: 24px 0 4px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--accent-fill); transition: width 120ms linear; }
+  .label { font-size: 13px; color: var(--label-2); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
+  .grid .wide { grid-column: span 2; height: 64px; font-size: 20px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header><img src="/brand.png" alt="" /><span id="brand"></span></header>
+<div class="seg" role="tablist">
+  <button role="tab" id="tab-camera" aria-selected="true" aria-controls="camera">Camera</button>
+  <button role="tab" id="tab-remote" aria-selected="false" aria-controls="remote">Remote</button>
+</div>
+
+<section id="camera" role="tabpanel" aria-labelledby="tab-camera">
+  <div class="preview"><video id="preview" playsinline muted autoplay class="mirror"></video><span class="chip" id="chip">Not connected</span></div>
+  <div class="row">
+    <button class="big" id="flip" disabled>Flip Camera</button>
+    <button class="big primary" id="connect">Start Camera</button>
+  </div>
+  <p class="note" id="camera-note"></p>
+</section>
+
+<section id="remote" role="tabpanel" aria-labelledby="tab-remote" hidden>
+  <div class="timer" id="timer">0:00</div>
+  <div class="state" id="state">Not recording</div>
+  <div class="meter" aria-hidden="true"><i id="level"></i></div>
+  <div class="label">Microphone on the laptop</div>
+  <div class="grid">
+    <button class="big rec wide" id="start">Start Recording</button>
+    <button class="big" id="pause" disabled>Pause</button>
+    <button class="big" id="stop" disabled>Stop</button>
+    <button class="big danger wide" id="discard" disabled>Discard</button>
+  </div>
+</section>
+<p class="error" id="error" role="alert" hidden></p>
+
+<script>
+  const BRAND = __BRAND__;
+  const $ = (id) => document.getElementById(id);
+  document.documentElement.style.setProperty("--accent", BRAND.accent);
+  $("brand").textContent = BRAND.name;
+  const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+  const ua = navigator.userAgent;
+  const device = /iPad/.test(ua) ? "iPad" : /iPhone/.test(ua) ? "iPhone" : /Android/.test(ua) ? "Android phone" : "Phone";
+  const fail = (msg) => { $("error").textContent = msg; $("error").hidden = !msg; };
+  const api = async (path, body) => {
+    const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (r.status === 204) return null;
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "The app did not answer. Is it still open?");
+    return j;
+  };
+
+  // Tabs
+  const show = (which) => {
+    for (const t of ["camera", "remote"]) { $(t).hidden = t !== which; $("tab-" + t).setAttribute("aria-selected", String(t === which)); }
+  };
+  $("tab-camera").onclick = () => show("camera");
+  $("tab-remote").onclick = () => show("remote");
+
+  let role = "camera";
+  api("/api/phone/hello", { token, device }).then((r) => {
+    role = r.role;
+    $("camera-note").textContent = role === "angle"
+      ? "Recorded as a second angle, for hands, a whiteboard or a product. Point the back camera at it."
+      : "Shown in the camera bubble and recorded as its own track.";
+    if (role === "angle") facing = "environment";
+  }).catch((e) => fail(e.message));
+
+  // Camera: battery-friendly 720p at 30 fps, straight to the laptop over the local network.
+  let facing = "user", stream = null, pc = null;
+  const constraints = () => ({ audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
+  async function camera() {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia(constraints());
+    $("preview").srcObject = stream;
+    $("preview").classList.toggle("mirror", facing === "user");
+    return stream.getVideoTracks()[0];
+  }
+  const settle = (pc) => new Promise((done) => {
+    if (pc.iceGatheringState === "complete") return done();
+    pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && done());
+    setTimeout(done, 2500);
+  });
+  $("connect").onclick = async () => {
+    fail("");
+    try {
+      if (!window.isSecureContext) throw new Error("The camera needs a secure page. Open the link from the QR code again.");
+      $("connect").disabled = true; $("chip").textContent = "Connecting...";
+      const track = await camera();
+      pc = new RTCPeerConnection({ iceServers: [] });
+      pc.addTrack(track, stream);
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState;
+        $("chip").textContent = s === "connected" ? "Live on " + BRAND.name : s === "failed" ? "Connection lost" : "Connecting...";
+        if (s === "failed") $("connect").disabled = false;
+      };
+      await pc.setLocalDescription(await pc.createOffer());
+      await settle(pc);
+      await api("/api/phone/offer", { token, sdp: pc.localDescription.sdp });
+      for (let i = 0; i < 120 && pc; i++) {
+        const a = await api("/api/phone/answer?token=" + encodeURIComponent(token));
+        if (a && a.sdp) { await pc.setRemoteDescription({ type: "answer", sdp: a.sdp }); break; }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      $("flip").disabled = false;
+    } catch (e) { fail(e.message || String(e)); $("connect").disabled = false; $("chip").textContent = "Not connected"; }
+  };
+  // Flipping swaps the track in place; the connection stays up.
+  $("flip").onclick = async () => {
+    facing = facing === "user" ? "environment" : "user";
+    try {
+      const track = await camera();
+      const sender = pc?.getSenders().find((s) => s.track && s.track.kind === "video");
+      if (sender) await sender.replaceTrack(track);
+    } catch (e) { fail(e.message); }
+  };
+
+  // Remote
+  const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+  let st = { recording: false, paused: false };
+  const press = (action) => api("/api/phone/remote", { token, action }).catch((e) => fail(e.message));
+  $("start").onclick = () => press("start");
+  $("pause").onclick = () => press(st.paused ? "resume" : "pause");
+  $("stop").onclick = () => press("stop");
+  $("discard").onclick = () => { if (confirm("Discard this recording?")) press("discard"); };
+  async function poll() {
+    try {
+      st = await api("/api/phone/status?token=" + encodeURIComponent(token));
+      $("timer").textContent = mmss(st.elapsed || 0);
+      $("state").textContent = !st.recording ? "Not recording" : st.paused ? "Paused" : "Recording";
+      $("level").style.width = Math.round((st.level || 0) * 100) + "%";
+      $("start").disabled = st.recording;
+      $("pause").disabled = $("stop").disabled = $("discard").disabled = !st.recording;
+      $("pause").textContent = st.paused ? "Resume" : "Pause";
+      fail("");
+    } catch (e) { fail(e.message); }
+    setTimeout(poll, 500);
+  }
+  poll();
+</script>
+</body>
+</html>

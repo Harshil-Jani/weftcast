@@ -1,0 +1,42 @@
+--- a/libavdevice/avfoundation.m
++++ b/libavdevice/avfoundation.m
+@@ -26,6 +26,7 @@
+  */
+ 
+ #import <AVFoundation/AVFoundation.h>
++#include <CoreMediaIO/CMIOHardware.h>
+ #include <pthread.h>
+ 
+ #include "libavutil/channel_layout.h"
+@@ -821,10 +822,30 @@
+ #endif
+ }
+ 
++/* Lets a USB-connected iPhone or iPad screen appear as a muxed capture device, the way QuickTime
++ * Player does. The setting is per process, so it has to be made here, before devices are listed. */
++static void enable_screen_capture_devices(void)
++{
++    static int done = 0;
++    CMIOObjectPropertyAddress prop = {
++        kCMIOHardwarePropertyAllowScreenCaptureDevices,
++        kCMIOObjectPropertyScopeGlobal,
++        kCMIOObjectPropertyElementMain
++    };
++    UInt32 allow = 1;
++    if (done)
++        return;
++    done = 1;
++    if (CMIOObjectSetPropertyData(kCMIOObjectSystemObject, &prop, 0, NULL, sizeof(allow), &allow) == kCMIOHardwareNoError)
++        /* Connected devices are published asynchronously once allowed. */
++        [NSThread sleepForTimeInterval:1.0];
++}
++
+ static int avf_read_header(AVFormatContext *s)
+ {
+     int ret = 0;
+-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
++    /* Before any device query: enable iPhone and iPad screen devices (see above). */
++    NSAutoreleasePool *pool = (enable_screen_capture_devices(), [[NSAutoreleasePool alloc] init]);
+     uint32_t num_screens    = 0;
+     AVFContext *ctx         = (AVFContext*)s->priv_data;
+     AVCaptureDevice *video_device = nil;

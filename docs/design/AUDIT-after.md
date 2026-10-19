@@ -140,3 +140,25 @@ The design gate passed at 52/60. These fixes followed it:
    - the dark background matches the app's #1e1e1e
 
 Detector after round 2: 0 findings on 80 app snapshots, 0 static, and 0 on the watch page at 1440, 900 and 390.
+
+## Round 3: Connect Phone (2026-10-19)
+
+New surfaces:
+- the Connect Phone sheet (Phone Screen, Face Cam, Remote & Angle)
+- the phone label and Connect Phone button in the recording pill
+- the inspector's Phone section
+- the phone web page (Camera and Remote tabs)
+
+Detector: 0 findings on 96 app snapshots (light and dark, 1440 and 900), and 0 on the live phone page at 390 and 1440.
+
+Headless checks, with no real phone:
+- 11 browser checks in Chromium, using fake camera and microphone:
+  - WebRTC frames reach the bubble
+  - a browser page from another origin gets 403 on the pairing routes
+  - a wrong token gets 401
+  - the phone camera is recorded, paused in step, uploaded and attached as a track
+  - the phone's Start, timer and Stop drive the app through the controls window
+- Compositor run on synthetic media, for each layout (right, left, PiP, split, second-angle inset and split, B-roll):
+  - the phone flash lands at its offset exactly (2.500s for a 0.5s offset)
+  - A/V stays within a quarter of a frame (beep 8ms after the matching frame)
+  - after a cut, both tracks move with the edit

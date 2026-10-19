@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api } from "../lib/api";
+import { api, loadPrefs } from "../lib/api";
+import { receivePhone } from "../lib/phoneLink";
 import { Segmented } from "../components/ui";
 
 const SIZES = { S: 140, M: 200, L: 280 } as const;
@@ -21,14 +22,21 @@ export default function Bubble() {
     return () => clearInterval(t);
   }, []);
 
+  // A phone paired as the face cam (Wi-Fi) takes over from the Mac's camera while it is connected.
+  const [phone, setPhone] = useState<MediaStream | null>(null);
+  const phoneRef = useRef<MediaStream | null>(null);
+  useEffect(() => receivePhone("camera", (s) => { phoneRef.current = s; setPhone(s); }), []);
+
   useEffect(() => {
     const stopCam = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
     const off = listen<{ on: boolean }>("bubble", async (e) => {
       if (!e.payload.on) return stopCam();
       if (stream.current) return;
       try {
-        stream.current = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 640 }, audio: false });
-        if (video.current) video.current.srcObject = stream.current;
+        // The chosen camera, for example an iPhone used as a Continuity Camera.
+        const id = loadPrefs()?.cameraId;
+        stream.current = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 640, ...(id ? { deviceId: { exact: id } } : {}) }, audio: false });
+        if (video.current && !phoneRef.current) video.current.srcObject = stream.current;
         setErr("");
       } catch {
         setErr("Allow camera access in System Settings");
@@ -36,6 +44,10 @@ export default function Bubble() {
     });
     return () => { off.then((f) => f()); stopCam(); };
   }, []);
+  // Phone connected: show it. Phone gone: back to the Mac's camera, if it is running.
+  useEffect(() => {
+    if (video.current) video.current.srcObject = phone ?? stream.current;
+  }, [phone]);
 
   const pick = (s: Size) => { setSize(s); try { localStorage.setItem("bubble-size", s); } catch { /* not persisted */ } };
   return (

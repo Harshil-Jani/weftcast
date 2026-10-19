@@ -49,11 +49,24 @@ pub fn tools() -> Vec<(&'static str, String, Value)> {
             "apply_edit_plan",
             "Validate and apply an edit plan: {ops: [...], explanation}. Ops: cut{start,end,label}, keep_only{ranges}, \
              speed{start,end,factor 0.25-4}, set_title{title}, set_chapters{chapters:[{start,title}]}, voice{gain_db -12..12, auto}, \
-             add_note{time,text}. Times are seconds. With preview: true it only describes the change. Undo with undo_edit."
+             add_note{time,text}, show_phone{start,end,layout: right|left|pip|split}, switch_angle{start,end,track: angle|phone_camera|phone_screen}. \
+             The last two need that track (see get_tracks). Times are seconds. With preview: true it only describes the change. Undo with undo_edit."
                 .into(),
             with(json!({"plan": {"type": "object"}, "preview": {"type": "boolean"}}), &["video_id", "plan"]),
         ),
         ("undo_edit", "Undo the last applied edit plan.".into(), with(json!({}), &["video_id"])),
+        (
+            "get_tracks",
+            "Phone tracks of a video (phone_screen, phone_camera, angle), and the current phone and angle layout.".into(),
+            with(json!({}), &["video_id"]),
+        ),
+        (
+            "set_layout",
+            "Lay out the phone screen and second angle, then re-render. phone: {enabled, layout: right|left|pip|split, size: S|M|L, pip: [x, y] fractions}. \
+             angle: {mode: off|pip|split}. Keeps existing show_phone and switch_angle ranges."
+                .into(),
+            with(json!({"phone": {"type": "object"}, "angle": {"type": "object"}}), &["video_id"]),
+        ),
         ("render", "Re-render the shareable file from the current voice settings.".into(), with(json!({}), &["video_id"])),
         ("export", "Export to Downloads. kind: mp4, captioned, srt or vtt.".into(), with(json!({"kind": {"type": "string", "enum": ["mp4", "captioned", "srt", "vtt"]}}), &["video_id", "kind"])),
         (
@@ -118,6 +131,30 @@ impl Agent {
                     json!({"applied": lines, "duration": v.duration, "title": v.title, "undo": "call undo_edit"}),
                 )
             }
+            "get_tracks" => {
+                let v = library::load(arg_str(a, "video_id")?)?;
+                Ok(
+                    json!({"tracks": v.tracks, "phone": v.phone, "angle": v.angle, "timeline_edited": !v.timeline.is_empty()}),
+                )
+            }
+            "set_layout" => {
+                let id = arg_str(a, "video_id")?;
+                let mut v = library::load(id)?;
+                if !a["phone"].is_null() {
+                    let ranges = v.phone.ranges.clone();
+                    v.phone = serde_json::from_value(a["phone"].clone()).context("phone layout")?;
+                    v.phone.ranges = ranges;
+                }
+                if !a["angle"].is_null() {
+                    let broll = v.angle.broll.clone();
+                    v.angle.mode = serde_json::from_value(a["angle"]["mode"].clone())
+                        .context("angle mode: off, pip or split")?;
+                    v.angle.broll = broll;
+                }
+                library::save(&v)?;
+                crate::phone::render(id).await?;
+                Ok(json!({"phone": v.phone, "angle": v.angle, "file": library::playable_path(id)}))
+            }
             "undo_edit" => {
                 let v = edits::undo(arg_str(a, "video_id")?).await?;
                 Ok(json!({"restored": v.title, "duration": v.duration}))
@@ -126,6 +163,7 @@ impl Agent {
                 let id = arg_str(a, "video_id")?;
                 let v = library::load(id)?;
                 voice::render(id, &v.voice).await?;
+                crate::phone::render(id).await?;
                 Ok(json!({"file": library::playable_path(id)}))
             }
             "export" => {

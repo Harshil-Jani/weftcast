@@ -1,9 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Menu } from "@tauri-apps/api/menu";
-import { ChevronDown, Mic, MicOff, Pause, Play, Trash2, Video, VideoOff, X } from "lucide-react";
+import { ChevronDown, Mic, MicOff, Pause, Play, Smartphone, Trash2, Video, VideoOff, X } from "lucide-react";
 import { api, errText, loadPrefs, mmss, savePrefs, type Devices, type RecState, type StartOptions } from "../lib/api";
+import { beginRecording } from "../lib/recording";
+import { pairState, postStatus, receivePhone } from "../lib/phoneLink";
 import { IconButton } from "../components/ui";
+
+/** Live microphone level (0 to 1) while recording, for the phone's remote tab. */
+function useMicLevel(on: boolean) {
+  const level = useRef(0);
+  useEffect(() => {
+    if (!on) { level.current = 0; return; }
+    let stream: MediaStream | null = null, ctx: AudioContext | null = null, raf = 0, live = true;
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((s) => {
+      if (!live) { s.getTracks().forEach((t) => t.stop()); return; }
+      stream = s; ctx = new AudioContext();
+      const an = ctx.createAnalyser(); an.fftSize = 512;
+      ctx.createMediaStreamSource(s).connect(an);
+      const buf = new Float32Array(an.fftSize);
+      const read = () => { an.getFloatTimeDomainData(buf); level.current = Math.min(1, Math.sqrt(buf.reduce((a, x) => a + x * x, 0) / buf.length) * 4); raf = requestAnimationFrame(read); };
+      read();
+    }).catch(() => {});
+    return () => { live = false; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); ctx?.close(); };
+  }, [on]);
+  return level;
+}
 
 type Mode = "idle" | "setup" | "countdown" | "recording" | "error";
 
@@ -20,6 +42,23 @@ export default function Hud() {
   const [mic, setMic] = useState<string | null>(saved ? saved.mic : "");
   const [lastMic, setLastMic] = useState(saved?.mic ?? "");
   const [camera, setCamera] = useState(saved?.camera ?? true);
+  // A phone paired over Wi-Fi (face cam or second angle), and a phone screen chosen in Connect Phone.
+  const [phoneName, setPhoneName] = useState<string | null>(null);
+  const phoneScreen = loadPrefs()?.phone ?? null;
+  useEffect(() => receivePhone("angle", () => {}), []);
+  useEffect(() => {
+    const t = window.setInterval(() => { pairState().then((p) => setPhoneName(p.paired && p.connected ? p.device || "Phone" : null)).catch(() => {}); }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const level = useMicLevel(st.recording && !st.paused);
+  useEffect(() => { postStatus({ ...st, level: level.current }); }, [st, level]);
+  const connectPhone = async () => { await api.showMain(); await emit("connect-phone"); };
+  // The pill widens to fit the phone label.
+  const phoneLabel = phoneName ?? phoneScreen?.name ?? null;
+  useEffect(() => {
+    if (mode === "setup") api.hudLayout(phoneLabel ? "setup-phone" : "setup");
+    if (mode === "recording") api.hudLayout(phoneName ? "recording-phone" : "recording");
+  }, [mode, phoneLabel, phoneName]);
 
   const countdown = async (opts: StartOptions) => {
     setErr(""); setMode("countdown");
@@ -44,6 +83,16 @@ export default function Hud() {
         } catch (x) { fail(x); }
       }),
       listen<StartOptions>("countdown", (e) => countdown(e.payload)),
+      // Buttons on the phone's Remote tab.
+      listen<string>("remote", async (e) => {
+        const s = await api.state();
+        const p = loadPrefs();
+        if (e.payload === "start" && !s.recording) { if (p) await beginRecording(p); }
+        else if (e.payload === "pause" && s.recording && !s.paused) await api.pause();
+        else if (e.payload === "resume" && s.paused) await api.resume();
+        else if (e.payload === "stop" && s.recording) { await emit("bubble", { on: false }); await api.stop(); setMode("idle"); }
+        else if (e.payload === "discard" && s.recording) { await emit("bubble", { on: false }); await api.cancel(); setMode("idle"); }
+      }),
     ];
     const timer = window.setInterval(() => { api.state().then((s) => { setSt(s); if (s.recording) setMode((m) => (m === "idle" ? "recording" : m)); }); }, 400);
     return () => { offs.forEach((o) => o.then((f) => f())); clearInterval(timer); };
@@ -67,10 +116,10 @@ export default function Hud() {
     await menu.popup();
   };
   const record = async () => {
-    const p = { screen, mic, camera };
+    const p = { ...loadPrefs(), screen, mic, camera, phone: phoneScreen };
     savePrefs(p);
     await api.hideMain();
-    countdown({ screen, mic });
+    countdown({ screen, mic, phone: phoneScreen });
   };
 
   if (mode === "countdown") {
@@ -90,7 +139,9 @@ export default function Hud() {
       <div className="hud" data-tauri-drag-region role="toolbar" aria-label="Recording controls">
         <span className={`dot ${st.paused ? "paused" : ""}`} aria-hidden />
         <span className="time" data-tauri-drag-region aria-label={`Recorded ${mmss(st.elapsed)}`}>{mmss(st.elapsed)}</span>
+        {phoneName && <span className="phone-chip" title={`Phone connected: ${phoneName}`}><i />Phone connected: {phoneName}</span>}
         <span className="spacer" data-tauri-drag-region />
+        <IconButton icon={Smartphone} label="Connect Phone" onClick={connectPhone} />
         {st.paused
           ? <IconButton icon={Play} label="Resume" disabled={busy} onClick={() => act(api.resume)} />
           : <IconButton icon={Pause} label="Pause" disabled={busy || !st.recording} onClick={() => act(api.pause)} />}
@@ -113,6 +164,12 @@ export default function Hud() {
         <IconButton icon={ChevronDown} small label="Choose microphone" disabled={!devs?.mics.length} onClick={micMenu} />
       </span>
       <IconButton icon={camera ? Video : VideoOff} label={camera ? "Camera on" : "Camera off"} pressed={camera} onClick={toggleCamera} />
+      <IconButton icon={Smartphone} label="Connect Phone" pressed={!!(phoneName || phoneScreen)} onClick={connectPhone} />
+      {(phoneName || phoneScreen) && (
+        <span className="phone-chip" title={phoneName ? `Phone connected: ${phoneName}` : `Phone screen: ${phoneScreen?.name}`}>
+          <i />{phoneName ? `Phone connected: ${phoneName}` : phoneScreen?.name}
+        </span>
+      )}
       <span className="spacer" data-tauri-drag-region />
       <button type="button" className="rec-btn" disabled={!screen} onClick={record}><i aria-hidden />Record</button>
     </div>

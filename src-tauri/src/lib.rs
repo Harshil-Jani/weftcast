@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod ai;
+pub mod android;
 pub mod brand;
 pub mod captions;
 pub mod capture;
@@ -10,6 +11,8 @@ pub mod export;
 pub mod importer;
 pub mod library;
 pub mod media;
+pub mod pairing;
+pub mod phone;
 pub mod server;
 pub mod share;
 pub mod shorter;
@@ -78,8 +81,10 @@ pub fn hud_layout(app: &AppHandle, mode: &str) {
     let (width, height) = match mode {
         "countdown" => (220.0, 220.0),
         "recording" => (260.0, 60.0),
+        "recording-phone" => (460.0, 60.0),
         "error" => (480.0, 60.0),
-        _ => (440.0, 60.0),
+        "setup-phone" => (640.0, 60.0),
+        _ => (480.0, 60.0),
     };
     let _ = w.set_size(LogicalSize::new(width, height));
     place(&w, true, mode == "countdown");
@@ -129,6 +134,11 @@ fn menu_bar(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
     let file = SubmenuBuilder::new(app, "File")
         .item(&item("new-recording", "New Recording", "CmdOrCtrl+N")?)
+        .item(&item(
+            "connect-phone",
+            "Connect Phone\u{2026}",
+            "Shift+CmdOrCtrl+P",
+        )?)
         .item(&item("import", "Import Video\u{2026}", "CmdOrCtrl+O")?)
         .separator()
         .item(&item("export", "Export\u{2026}", "CmdOrCtrl+E")?)
@@ -230,6 +240,14 @@ pub fn run() {
         })
         .setup(move |app| {
             app.global_shortcut().register(toggle)?;
+            // Phone remote buttons arrive from the pairing server as events for the controls window.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut rx = pairing::REMOTE.subscribe();
+                while let Ok(action) = rx.recv().await {
+                    let _ = handle.emit("remote", action);
+                }
+            });
             app.set_menu(menu_bar(app.handle())?)?;
             // Developer override for screenshots and testing: <SLUG>_APPEARANCE=light|dark.
             let theme = match std::env::var(format!(
@@ -302,6 +320,12 @@ pub fn run() {
             commands::cancel_recording,
             commands::show_overlays,
             commands::hud_layout,
+            commands::phone_pair,
+            commands::phone_unpair,
+            commands::phone_devices,
+            commands::install_android_tools,
+            commands::set_layout,
+            commands::show_main,
             commands::bubble_size,
             commands::hide_main,
             commands::transcribe_video,

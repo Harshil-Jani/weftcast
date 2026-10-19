@@ -16,7 +16,7 @@ export async function beginRecording(p: Prefs) {
   await api.hudLayout("countdown");
   await api.overlays(true, p.camera);
   await emit("bubble", { on: p.camera });
-  await emit("countdown", { screen: p.screen, mic: p.mic });
+  await emit("countdown", { screen: p.screen, mic: p.mic, phone: p.phone ?? null });
   await api.hideMain();
 }
 

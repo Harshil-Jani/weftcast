@@ -29,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
         let opts = capture::StartOptions {
             screen: devs.screens[0].index.clone(),
             mic: devs.mics.first().map(|m| m.index.clone()),
+            phone: None,
         };
         rec.start(opts).await?;
         tokio::time::sleep(std::time::Duration::from_secs(secs / 2)).await;

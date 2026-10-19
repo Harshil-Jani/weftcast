@@ -13,6 +13,7 @@ import Settings from "./Settings";
 import Onboarding from "./Onboarding";
 import Shorts from "./Shorts";
 import Shared from "./Shared";
+import ConnectPhone from "./ConnectPhone";
 
 type View = "library" | "shorts" | "shared";
 const stored = (k: string, d: boolean) => { try { const v = localStorage.getItem(k); return v === null ? d : v === "1"; } catch { return d; } };
@@ -23,7 +24,7 @@ export default function App() {
   const [videos, setVideos] = useState<Video[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [srv, setSrv] = useState("");
-  const [sheet, setSheet] = useState<"settings" | "onboarding" | null>(null);
+  const [sheet, setSheet] = useState<"settings" | "onboarding" | "phone" | null>(null);
   const [sidebar, setSidebar] = useState(() => stored("sidebar", true));
   const [command, setCommand] = useState<Command>(null);
   const n = useRef(0);
@@ -44,9 +45,11 @@ export default function App() {
         const p = loadPrefs();
         if (p) await beginRecording(p); else await newRecording();
       }),
+      listen("connect-phone", () => setSheet("phone")),
       listen<string>("menu", (e) => {
         const id = e.payload;
         if (id === "settings") setSheet("settings");
+        else if (id === "connect-phone") setSheet("phone");
         else if (id === "new-recording") newRecording();
         else if (id === "view-library") go("library");
         else if (id === "view-shorts") go("shorts");
@@ -108,6 +111,7 @@ export default function App() {
 
       {sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
       {sheet === "onboarding" && <Onboarding onDone={() => setSheet(null)} />}
+      {sheet === "phone" && <ConnectPhone onClose={() => setSheet(null)} />}
     </div>
   );
 }

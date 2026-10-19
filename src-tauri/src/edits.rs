@@ -45,6 +45,18 @@ pub enum Op {
         time: f64,
         text: String,
     },
+    /// Show the phone screen over a range, in a layout (right, left, pip, split).
+    ShowPhone {
+        start: f64,
+        end: f64,
+        layout: crate::phone::Layout,
+    },
+    /// Cut to another track full frame over a range (B-roll): "angle", "phone_camera" or "phone_screen".
+    SwitchAngle {
+        start: f64,
+        end: f64,
+        track: crate::phone::TrackKind,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -148,6 +160,10 @@ pub fn validate(raw: &Value, duration: f64) -> Result<Plan> {
                         "voice gain {g} dB must be between -12 and +12"
                     );
                 }
+            }
+            Op::ShowPhone { start, end, .. } => check_range(*start, *end, duration, "show_phone")?,
+            Op::SwitchAngle { start, end, .. } => {
+                check_range(*start, *end, duration, "switch_angle")?
             }
             Op::AddNote { time, text } => ensure!(
                 *time >= 0.0 && *time <= duration && !text.trim().is_empty(),
@@ -286,6 +302,23 @@ pub fn describe(plan: &Plan, duration: f64) -> Vec<String> {
                 _ => "Voice: off".into(),
             },
             Op::AddNote { time, text } => format!("Note at {}: {text}", mmss(*time)),
+            Op::ShowPhone { start, end, layout } => format!(
+                "Show the phone screen ({}) from {} to {}",
+                match layout {
+                    crate::phone::Layout::Right => "on the right",
+                    crate::phone::Layout::Left => "on the left",
+                    crate::phone::Layout::Pip => "picture in picture",
+                    crate::phone::Layout::Split => "side by side",
+                },
+                mmss(*start),
+                mmss(*end)
+            ),
+            Op::SwitchAngle { start, end, track } => format!(
+                "Cut to the {} from {} to {}",
+                track.label().to_lowercase(),
+                mmss(*start),
+                mmss(*end)
+            ),
         })
         .collect();
     if changes_picture(plan) {
@@ -356,6 +389,7 @@ pub async fn undo(id: &str) -> Result<Video> {
     std::fs::remove_dir_all(&d)?;
     let v = library::load(id)?;
     voice::render(id, &v.voice).await?;
+    crate::phone::render(id).await?;
     let _ = media::thumbnail(
         &library::video_path(id),
         &library::thumb_path(id),
@@ -365,10 +399,32 @@ pub async fn undo(id: &str) -> Result<Video> {
     Ok(v)
 }
 
+/// Phone ops need the track they name.
+fn check_tracks(plan: &Plan, v: &Video) -> Result<()> {
+    use crate::phone::TrackKind;
+    for op in &plan.ops {
+        let need = match op {
+            Op::ShowPhone { .. } => Some(TrackKind::PhoneScreen),
+            Op::SwitchAngle { track, .. } => Some(*track),
+            _ => None,
+        };
+        if let Some(k) = need {
+            ensure!(
+                v.tracks.iter().any(|t| t.kind == k),
+                "This video has no {} track. Record with Connect Phone to add one.",
+                k.label().to_lowercase()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Renders the plan. The previous state is saved first so Undo restores it exactly.
 pub async fn apply(id: &str, plan: &Plan) -> Result<Video> {
     let mut v = library::load(id)?;
     let plan = validate(&serde_json::to_value(plan)?, v.duration)?;
+    check_tracks(&plan, &v)?;
+    let old_duration = v.duration;
     snapshot(id)?;
     let mut segs = vec![Segment {
         start: 0.0,
@@ -382,6 +438,7 @@ pub async fn apply(id: &str, plan: &Plan) -> Result<Video> {
         let tmp = library::dir(id).join("edit.mp4");
         media::render_timeline(&src, &tmp, &segs).await?;
         tokio::fs::rename(&tmp, &src).await?;
+        crate::phone::follow_edit(&mut v, &segs, old_duration);
         v.duration = media::duration(&src).await?;
         v.edited = true;
         if let Some(t) = library::load_transcript(id) {
@@ -445,11 +502,32 @@ pub async fn apply(id: &str, plan: &Plan) -> Result<Video> {
                 }
                 .clamped();
             }
+            // Layout ranges are given in the current (pre-edit) timeline, like chapters.
+            Op::ShowPhone { start, end, layout } => {
+                if let (Some(a), Some(b)) = (map_time(&segs, *start), map_time(&segs, *end)) {
+                    v.phone.enabled = true;
+                    v.phone.ranges.push(crate::phone::LayoutRange {
+                        start: a,
+                        end: b,
+                        layout: *layout,
+                    });
+                }
+            }
+            Op::SwitchAngle { start, end, track } => {
+                if let (Some(a), Some(b)) = (map_time(&segs, *start), map_time(&segs, *end)) {
+                    v.angle.broll.push(crate::phone::BRoll {
+                        start: a,
+                        end: b,
+                        track: *track,
+                    });
+                }
+            }
             _ => {}
         }
     }
     library::save(&v)?;
     voice::render(id, &v.voice).await?;
+    crate::phone::render(id).await?;
     let _ = media::thumbnail(
         &library::video_path(id),
         &library::thumb_path(id),
@@ -482,6 +560,10 @@ pub fn plan_schema() -> Value {
                     "properties": {"start": {"type": "number"}, "title": {"type": "string"}}}}}), vec!["chapters"]),
                 op("voice", json!({"gain_db": {"type": "number"}, "auto": {"type": "boolean"}}), vec![]),
                 op("add_note", json!({"time": {"type": "number"}, "text": {"type": "string"}}), vec!["time", "text"]),
+                op("show_phone", json!({"start": {"type": "number"}, "end": {"type": "number"},
+                    "layout": {"enum": ["right", "left", "pip", "split"]}}), vec!["start", "end", "layout"]),
+                op("switch_angle", json!({"start": {"type": "number"}, "end": {"type": "number"},
+                    "track": {"enum": ["angle", "phone_camera", "phone_screen"]}}), vec!["start", "end", "track"]),
             ]}}
         }
     })
@@ -499,9 +581,12 @@ pub fn segment_transcript(t: &Transcript) -> String {
 pub async fn plan_from_prompt(v: &Video, t: Option<&Transcript>, prompt: &str) -> Result<Plan> {
     let system = "You turn a person's editing request into an edit plan for one screen recording. \
         Use only the ops in the schema. Times are seconds in the CURRENT video. \
+        show_phone and switch_angle only work for tracks listed in the state. \
         Cut on the transcript line boundaries given. Only include what was asked for; if a request \
         cannot be done with these ops, return an empty ops list and say why in explanation.";
-    let state = json!({"duration": v.duration, "title": v.title, "chapters": v.chapters, "voice": v.voice, "notes": v.notes});
+    let tracks: Vec<_> = v.tracks.iter().map(|t| t.kind).collect();
+    let state = json!({"duration": v.duration, "title": v.title, "chapters": v.chapters, "voice": v.voice, "notes": v.notes,
+        "tracks": tracks, "phone_layout": v.phone, "angle": v.angle});
     let transcript = t
         .map(segment_transcript)
         .unwrap_or_else(|| "(no transcript yet)".into());
@@ -527,6 +612,54 @@ mod tests {
 
     fn plan(v: Value) -> Result<Plan> {
         validate(&v, 60.0)
+    }
+
+    #[test]
+    fn phone_ops_validate() {
+        let p = plan(json!({"ops": [
+            {"op": "show_phone", "start": 5, "end": 20, "layout": "pip"},
+            {"op": "switch_angle", "start": 30, "end": 34, "track": "angle"}
+        ]}))
+        .unwrap();
+        assert_eq!(p.ops.len(), 2);
+        assert!(
+            plan(json!({"ops": [{"op": "show_phone", "start": 5, "end": 70, "layout": "pip"}]}))
+                .is_err(),
+            "outside the video"
+        );
+        assert!(
+            plan(
+                json!({"ops": [{"op": "show_phone", "start": 5, "end": 9, "layout": "diagonal"}]})
+            )
+            .is_err(),
+            "unknown layout"
+        );
+        assert!(
+            plan(json!({"ops": [{"op": "switch_angle", "start": 9, "end": 5, "track": "angle"}]}))
+                .is_err(),
+            "backwards"
+        );
+        assert!(
+            plan(json!({"ops": [{"op": "switch_angle", "start": 1, "end": 5, "track": "drone"}]}))
+                .is_err(),
+            "unknown track"
+        );
+        // A plan naming a track the video does not have is refused before anything renders.
+        let v = Video {
+            duration: 60.0,
+            ..Default::default()
+        };
+        assert!(
+            check_tracks(&p, &v)
+                .unwrap_err()
+                .to_string()
+                .contains("no phone screen track")
+        );
+        let lines = describe(&p, 60.0);
+        assert!(
+            lines[0].contains("picture in picture") && lines[1].contains("second angle"),
+            "{lines:?}"
+        );
     }
 
     #[test]

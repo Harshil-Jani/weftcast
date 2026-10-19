@@ -89,12 +89,15 @@ meson_build libass-0.17.4 -Dfontconfig=disabled -Dcoretext=enabled -Ddirectwrite
   -Dlibunibreak=disabled -Dtest=disabled -Dcompare=disabled -Dprofile=disabled -Dfuzz=disabled -Dcheckasm=disabled
 
 cd "$WORK/ffmpeg-8.0.1"
+# Our one source change (LGPL section 2: shipped as a patch in this repo): lets a USB iPhone or iPad
+# screen show up as a capture device. See scripts/patches/ffmpeg-ios-screen-devices.patch.
+patch -p1 < "$ROOT/scripts/patches/ffmpeg-ios-screen-devices.patch"
 CROSS_FLAGS=()
 [ "$ARCH" = "$(uname -m)" ] || CROSS_FLAGS=(--enable-cross-compile --arch="$CPU" --target-os=darwin)
 ./configure --prefix="$PREFIX" ${CROSS_FLAGS[@]+"${CROSS_FLAGS[@]}"} \
   --cc="clang -arch $ARCH" --cxx="clang++ -arch $ARCH" \
   --extra-cflags="-mmacosx-version-min=$MINOS -I$PREFIX/include" \
-  --extra-ldflags="-mmacosx-version-min=$MINOS -L$PREFIX/lib" \
+  --extra-ldflags="-mmacosx-version-min=$MINOS -L$PREFIX/lib -framework CoreMediaIO" \
   --extra-libs="-lc++" \
   --pkg-config-flags=--static \
   --enable-static --disable-shared --disable-debug --disable-doc --disable-ffplay \
@@ -109,3 +112,5 @@ cp ffmpeg "$OUT/ffmpeg-$TARGET"
 cp ffprobe "$OUT/ffprobe-$TARGET"
 echo "ffmpeg ready: $OUT/ffmpeg-$TARGET ($(du -h "$OUT/ffmpeg-$TARGET" | cut -f1))"
 otool -L "$OUT/ffmpeg-$TARGET" | grep -E "/opt/homebrew|/usr/local" && { echo "links outside the system"; exit 1; } || true
+# Recipe stamp, so scripts/fetch-sidecars.mjs rebuilds when this script or the patch changes.
+cat "$ROOT/scripts/build-ffmpeg.sh" "$ROOT/scripts/patches/ffmpeg-ios-screen-devices.patch" | shasum -a 256 | cut -d' ' -f1 > "$OUT/ffmpeg-$TARGET.stamp"

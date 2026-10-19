@@ -31,7 +31,6 @@ pub async fn start() -> anyhow::Result<u16> {
         .route("/raw/{share}", get(raw))
         .route("/preview/{share}", get(preview))
         .route("/thumb/{share}", get(thumb))
-        .route("/brand.png", get(brand_mark))
         .route("/captions/{share}", get(captions))
         .route("/api/v/{share}", get(meta))
         .route("/api/v/{share}/ask", post(ask))
@@ -40,7 +39,10 @@ pub async fn start() -> anyhow::Result<u16> {
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods([axum::http::Method::GET]),
-        );
+        )
+        // Pairing a phone: token-gated phone routes, and routes for this app's own windows.
+        .merge(crate::pairing::phone_routes())
+        .merge(crate::pairing::app_routes());
     // A fixed port keeps local links stable between launches; fall back to any free port.
     let listener =
         match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 47821))).await {
@@ -124,18 +126,6 @@ async fn thumb(Path(share): Path<String>, req: Request) -> Response {
         Ok(v) => serve_file(library::thumb_path(&v.id), req).await,
         Err(s) => s.into_response(),
     }
-}
-
-/// The app icon, shown as the brand mark on the watch page.
-async fn brand_mark() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "image/png"),
-            (header::CACHE_CONTROL, "public, max-age=86400"),
-        ],
-        include_bytes!("../icons/64x64.png").as_slice(),
-    )
-        .into_response()
 }
 
 #[derive(Deserialize)]

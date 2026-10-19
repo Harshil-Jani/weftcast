@@ -52,8 +52,9 @@ const tauriConf = {
     targets: "all",
     icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"],
     // Helpers shipped inside the app (scripts/fetch-sidecars.mjs prepares them).
-    externalBin: ["binaries/ffmpeg", "binaries/ffprobe", "binaries/cloudflared", "binaries/yt-dlp", "binaries/cli"],
-    resources: { "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md" },
+    externalBin: ["binaries/ffmpeg", "binaries/ffprobe", "binaries/cloudflared", "binaries/yt-dlp", "binaries/scrcpy", "binaries/cli"],
+    // The scrcpy server runs on the phone (one jar for every Mac), next to the notices.
+    resources: { "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md", "binaries/scrcpy-server": "scrcpy-server" },
     macOS: {
       minimumSystemVersion: "12.3",
       entitlements: "Entitlements.plist",

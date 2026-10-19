@@ -41,6 +41,7 @@ pub fn get_video(id: String) -> Res<Value> {
         "cues": t.as_ref().map(|t| library::cues(&t.words)).unwrap_or_default(),
         "has_original": library::exists(&library::original_path(&id)),
         "can_undo": crate::edits::can_undo(&id),
+        "composed": library::exists(&crate::phone::composed_path(&id)),
     }))
 }
 
@@ -92,17 +93,23 @@ pub async fn start_recording(
 ) -> Res<String> {
     let id = state.recorder.start(opts).await.map_err(e)?;
     let _ = app.emit("recording-changed", true);
+    // Phone camera tracks start their own recorders now (wall clock, to line up with the screen).
+    let _ = app.emit("recording-started", json!({"id": id, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)}));
     Ok(id)
 }
 
 #[tauri::command]
-pub async fn pause_recording(state: State<'_, AppState>) -> Res<()> {
-    state.recorder.pause().await.map_err(e)
+pub async fn pause_recording(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
+    state.recorder.pause().await.map_err(e)?;
+    let _ = app.emit("recording-paused", true);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_recording(state: State<'_, AppState>) -> Res<()> {
-    state.recorder.resume().await.map_err(e)
+pub async fn resume_recording(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
+    state.recorder.resume().await.map_err(e)?;
+    let _ = app.emit("recording-paused", false);
+    Ok(())
 }
 
 #[tauri::command]
@@ -120,6 +127,7 @@ pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Res<V
     }
     crate::show_overlays(&app, false, false);
     let _ = app.emit("recording-changed", false);
+    crate::pairing::end_pairing();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -160,6 +168,8 @@ pub async fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Res
     state.recorder.cancel().await.map_err(e)?;
     crate::show_overlays(&app, false, false);
     let _ = app.emit("recording-changed", false);
+    let _ = app.emit("recording-discarded", ());
+    crate::pairing::end_pairing();
     Ok(())
 }
 
@@ -268,6 +278,7 @@ pub async fn plan_cuts(id: String, opts: CutOptions) -> Res<CutPlan> {
 /// Re-encodes the video in place, keeping a one-time backup of the original.
 async fn replace_video(
     id: &str,
+    segs: Vec<crate::cuts::Segment>,
     render: impl AsyncFnOnce(PathBuf, PathBuf) -> anyhow::Result<()>,
 ) -> anyhow::Result<Video> {
     let current = library::video_path(id);
@@ -278,6 +289,10 @@ async fn replace_video(
     let tmp = library::dir(id).join("edit.mp4");
     render(current.clone(), tmp.clone()).await?;
     tokio::fs::rename(&tmp, &current).await?;
+    let mut v = library::load(id)?;
+    let old = v.duration;
+    crate::phone::follow_edit(&mut v, &segs, old);
+    library::save(&v)?;
     after_edit(id).await
 }
 
@@ -297,7 +312,19 @@ async fn after_edit(id: &str) -> anyhow::Result<Video> {
     )
     .await;
     library::save(&v)?;
+    // Phone and angle tracks follow the new cut.
+    crate::phone::render(id).await?;
     Ok(v)
+}
+
+fn keep_segments(keep: &[crate::cuts::Range]) -> Vec<crate::cuts::Segment> {
+    keep.iter()
+        .map(|r| crate::cuts::Segment {
+            start: r.start,
+            end: r.end,
+            speed: 1.0,
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -306,7 +333,7 @@ pub async fn apply_cuts(id: String, opts: CutOptions) -> Res<Video> {
     if plan.removed.is_empty() {
         return Err("Nothing to remove.".into());
     }
-    replace_video(&id, async |src, out| {
+    replace_video(&id, keep_segments(&plan.keep), async |src, out| {
         media::render_keep(&src, &out, &plan.keep).await
     })
     .await
@@ -320,9 +347,12 @@ pub async fn trim_video(id: String, start: f64, end: f64) -> Res<Video> {
     if en - s < 0.5 {
         return Err("Keep at least half a second.".into());
     }
-    replace_video(&id, async |src, out| media::trim(&src, &out, s, en).await)
-        .await
-        .map_err(e)
+    let keep = [crate::cuts::Range { start: s, end: en }];
+    replace_video(&id, keep_segments(&keep), async |src, out| {
+        media::trim(&src, &out, s, en).await
+    })
+    .await
+    .map_err(e)
 }
 
 #[tauri::command]
@@ -335,6 +365,12 @@ pub async fn restore_original(id: String) -> Res<Video> {
         .await
         .map_err(e)?;
     let _ = tokio::fs::remove_file(&original).await;
+    // Back on the recording's own timeline; ranges made on the edited timeline no longer apply.
+    let mut v = library::load(&id).map_err(e)?;
+    v.timeline.clear();
+    v.phone.ranges.clear();
+    v.angle.broll.clear();
+    library::save(&v).map_err(e)?;
     let mut v = after_edit(&id).await.map_err(e)?;
     v.edited = false;
     library::save(&v).map_err(e)?;
@@ -482,6 +518,7 @@ pub async fn set_voice(id: String, voice: voice::Voice) -> Res<Video> {
     v.voice = voice.clamped();
     voice::render(&id, &v.voice).await.map_err(e)?;
     library::save(&v).map_err(e)?;
+    crate::phone::render(&id).await.map_err(e)?;
     Ok(v)
 }
 
@@ -683,4 +720,73 @@ pub fn reveal_path(path: String) -> Res<()> {
         .spawn()
         .map_err(e)?;
     Ok(())
+}
+
+// ---------- Phone ----------
+
+/// A QR code for the phone page. LAN (HTTPS, self-signed) by default; `public` uses the tunnel.
+#[tauri::command]
+pub async fn phone_pair(
+    state: State<'_, AppState>,
+    role: crate::pairing::Role,
+    public: bool,
+) -> Res<Value> {
+    let token = crate::pairing::PAIR
+        .lock()
+        .unwrap()
+        .issue(role, std::time::Instant::now());
+    let base = if public {
+        state.tunnel.start(state.port).await.map_err(e)?
+    } else {
+        let (ip, port) = crate::pairing::start_lan().await.map_err(e)?;
+        format!("https://{ip}:{port}")
+    };
+    let url = format!("{base}/phone#t={token}");
+    Ok(json!({"url": url, "svg": crate::pairing::qr_svg(&url).map_err(e)?, "lan": !public}))
+}
+
+#[tauri::command]
+pub fn phone_unpair() {
+    crate::pairing::end_pairing();
+}
+
+/// USB phones: iPhones and iPads through AVFoundation, Android phones through adb.
+#[tauri::command]
+pub async fn phone_devices() -> Res<Value> {
+    let d = capture::devices().await.map_err(e)?;
+    Ok(json!({
+        "ios": d.phones,
+        "cameras": d.cameras,
+        "android": crate::android::devices().await,
+        "adb": crate::android::adb_path().is_some(),
+        "adb_terms": crate::android::PLATFORM_TOOLS_TERMS,
+    }))
+}
+
+#[tauri::command]
+pub async fn install_android_tools() -> Res<String> {
+    crate::android::install_tools().await.map_err(e)
+}
+
+/// Saves the phone and angle layout and re-renders the composited video.
+#[tauri::command]
+pub async fn set_layout(
+    id: String,
+    phone: crate::phone::PhonePanel,
+    angle: crate::phone::AnglePanel,
+) -> Res<Video> {
+    let mut v = library::load(&id).map_err(e)?;
+    v.phone = phone;
+    v.angle = angle;
+    library::save(&v).map_err(e)?;
+    crate::phone::render(&id).await.map_err(e)?;
+    Ok(v)
+}
+
+#[tauri::command]
+pub fn show_main(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
 }

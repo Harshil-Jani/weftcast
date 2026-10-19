@@ -453,7 +453,7 @@ pub async fn render(
             "This ffmpeg can't draw text, so each short has a .ass captions file next to it instead of burned-in captions.".to_string()
         });
     }
-    let src = library::playable_path(&v.id);
+    let src = library::voiced_or_video(&v.id);
     std::fs::create_dir_all(dir(&v.id))?;
     let mut out = Vec::new();
     for id in clip_ids {

@@ -8,7 +8,20 @@ export type Video = {
   id: string; share_id: string; title: string; created_at: string; duration: number;
   summary: string | null; chapters: Chapter[]; has_transcript: boolean; public_questions: boolean; edited: boolean;
   voice: Voice; notes: Note[]; caption_langs: string[]; source_url: string | null; bubble: [number, number, number, number] | null;
+  tracks: Track[]; phone: PhonePanel; angle: AnglePanel; rec_started_ms: number;
 };
+export type TrackKind = "phone_screen" | "phone_camera" | "angle";
+export type Track = { kind: TrackKind; device: string; offset: number };
+export type PhoneLayout = "right" | "left" | "pip" | "split";
+export type PhoneSize = "S" | "M" | "L";
+export type PhonePanel = { enabled: boolean; layout: PhoneLayout; size: PhoneSize; pip: [number, number]; ranges: { start: number; end: number; layout: PhoneLayout }[] };
+export type AnglePanel = { mode: "off" | "pip" | "split"; broll: { start: number; end: number; track: TrackKind }[] };
+export const DEFAULT_PANEL: PhonePanel = { enabled: true, layout: "right", size: "M", pip: [0.86, 0.72], ranges: [] };
+export type PhoneSource =
+  | { kind: "ios"; index: string; name: string; layout?: PhonePanel }
+  | { kind: "android"; serial: string; name: string; layout?: PhonePanel };
+export type PairRole = "camera" | "angle";
+export type PhoneDevices = { ios: Device[]; cameras: Device[]; android: { serial: string; model: string; state: string }[]; adb: boolean; adb_terms: string };
 export type Note = { time: number; text: string };
 export type Clip = { id: string; start: number; end: number; title: string; reason: string; score: number; score_reason: string; caption: string; selected: boolean };
 export type Limits = { count: number; min: number; max: number; allow_overlap: boolean };
@@ -21,10 +34,10 @@ export type Voice = { gain_db: number; auto: boolean };
 export type Level = { lufs: number; true_peak: number };
 export type VoiceStats = { raw: Level; applied: Level | null; predicted_peak: number; clips: boolean };
 export type Cue = [number, number, string];
-export type VideoDetail = { video: Video; cues: Cue[]; has_original: boolean; can_undo: boolean };
+export type VideoDetail = { video: Video; cues: Cue[]; has_original: boolean; can_undo: boolean; composed: boolean };
 export type Device = { index: string; name: string };
-export type Devices = { screens: Device[]; mics: Device[] };
-export type StartOptions = { screen: string; mic: string | null };
+export type Devices = { screens: Device[]; mics: Device[]; cameras?: Device[]; phones?: Device[] };
+export type StartOptions = { screen: string; mic: string | null; phone?: PhoneSource | null };
 export type RecState = { recording: boolean; paused: boolean; elapsed: number };
 export type CutOptions = { remove_fillers: boolean; remove_silences: boolean; min_silence: number; pad: number };
 export type Range = { start: number; end: number };
@@ -53,8 +66,14 @@ export const api = {
   cancel: () => invoke<void>("cancel_recording"),
   overlays: (hud: boolean, bubble: boolean) => invoke<void>("show_overlays", { hud, bubble }),
   hideMain: () => invoke<void>("hide_main"),
-  hudLayout: (mode: "setup" | "countdown" | "recording" | "error") => invoke<void>("hud_layout", { mode }),
+  hudLayout: (mode: "setup" | "setup-phone" | "countdown" | "recording" | "recording-phone" | "error") => invoke<void>("hud_layout", { mode }),
   bubbleSize: (diameter: number) => invoke<void>("bubble_size", { diameter }),
+  showMain: () => invoke<void>("show_main"),
+  phonePair: (role: PairRole, isPublic: boolean) => invoke<{ url: string; svg: string; lan: boolean }>("phone_pair", { role, public: isPublic }),
+  phoneUnpair: () => invoke<void>("phone_unpair"),
+  phoneDevices: () => invoke<PhoneDevices>("phone_devices"),
+  installAndroidTools: () => invoke<string>("install_android_tools"),
+  setLayout: (id: string, phone: PhonePanel, angle: AnglePanel) => invoke<Video>("set_layout", { id, phone, angle }),
   transcribe: (id: string) => invoke<VideoDetail>("transcribe_video", { id }),
   insights: (id: string) => invoke<Video>("generate_insights", { id }),
   ask: (id: string, question: string) => invoke<Answer>("ask_video", { id, question }),
@@ -147,7 +166,7 @@ export const toProgress = (p: { stage: string; done: number; total: number }): P
   p.stage === "done" ? null : { label: p.stage, value: p.total ? p.done / p.total : undefined };
 
 /** The last recording setup, so the global shortcut can start straight away. */
-export type Prefs = StartOptions & { camera: boolean };
+export type Prefs = StartOptions & { camera: boolean; cameraId?: string | null };
 const PREFS = "rec-prefs";
 export function loadPrefs(): Prefs | null {
   try { return JSON.parse(localStorage.getItem(PREFS) || "null"); } catch { return null; }

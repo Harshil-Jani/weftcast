@@ -39,3 +39,6 @@ whisper-rs = { version = "0.16", features = ["metal"] }
 keyring = { version = "3", features = ["apple-native"] }
 sha2 = "0.10"
 tauri-plugin-dialog = "=2.8.1"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rcgen = "0.13"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

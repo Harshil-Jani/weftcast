@@ -8,6 +8,7 @@ import { aiReady, api, base, brand, errText, isTyping, mmss, mmssd, parseTime, s
 import { Button, CopyRow, Icon, IconButton, Row, Group, Segmented, Sheet, TaskStatus, Toggle, type Status } from "../components/ui";
 import { useCommand, type Command } from "../lib/recording";
 import VoicePanel from "./VoicePanel";
+import { LayoutPicker } from "./ConnectPhone";
 import { MakeShorter, PromptEdit, TranslateCaptions } from "./AiPanels";
 
 type Props = { id: string; command: Command; onBack: () => void; onDeleted: () => void; onOpen: (id: string) => void };
@@ -90,7 +91,8 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
     );
   }
   const v = d.video;
-  const src = `${srv}/raw/${v.share_id}.mp4?d=${v.duration}`;
+  // With a phone layout, play the composited file so the preview shows it.
+  const src = d.composed ? `${srv}/media/${v.share_id}.mp4?d=${v.duration}&t=${v.tracks.length}${JSON.stringify(v.phone).length}` : `${srv}/raw/${v.share_id}.mp4?d=${v.duration}`;
 
   const run: Run = async (at, label, fn, done) => {
     setTask({ at, label }); setStatus(null); setProgress(null);
@@ -237,6 +239,7 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
 
             {tab === "edit" && (
               <>
+                {v.tracks.length > 0 && <PhoneSection video={v} run={run} report={report} busy={busy} />}
                 <PromptEdit video={v} busy={busy || !ready} run={run} report={report} />
                 <MakeShorter video={v} busy={busy || !ready} run={run} report={report} seek={seek} onCreated={(s) => onOpen(s.id)} />
                 <CutsSection id={id} duration={v.duration} run={run} report={report} busy={busy} seek={seek} />
@@ -262,6 +265,62 @@ export default function Player({ id, command, onBack, onDeleted, onOpen }: Props
         );
       })()}
     </>
+  );
+}
+
+const ANGLE_LABEL: Record<string, string> = { phone_screen: "Phone screen", phone_camera: "Phone camera", angle: "Second angle" };
+
+/** The phone screen and second-angle layout. Saving re-renders the composited video. */
+function PhoneSection({ video: v, run, report, busy }: { video: VideoDetail["video"]; run: Run; report: Report; busy: boolean }) {
+  const [phone, setPhone] = useState(v.phone);
+  const [angle, setAngle] = useState(v.angle);
+  useEffect(() => { setPhone(v.phone); setAngle(v.angle); }, [v.phone, v.angle]);
+  const has = (k: string) => v.tracks.some((t) => t.kind === k);
+  const changed = JSON.stringify(phone) !== JSON.stringify(v.phone) || JSON.stringify(angle) !== JSON.stringify(v.angle);
+  return (
+    <section>
+      <h3>Phone</h3>
+      <p className="hint">{v.tracks.map((t) => `${ANGLE_LABEL[t.kind]}${t.device ? ` (${t.device})` : ""}`).join(", ")}. Recorded separately, so you can change this any time.</p>
+      {has("phone_screen") && (
+        <>
+          <Group>
+            <Row label="Show phone screen"><Toggle label="Show phone screen" checked={phone.enabled} onChange={(on) => setPhone({ ...phone, enabled: on })} /></Row>
+          </Group>
+          {phone.enabled && <LayoutPicker panel={phone} onChange={setPhone} />}
+          {phone.ranges.length > 0 && (
+            <div className="hstack">
+              <span className="callout secondary">Shown only in {phone.ranges.length} {phone.ranges.length === 1 ? "range" : "ranges"} from prompt edits.</span>
+              <Button kind="plain" onClick={() => setPhone({ ...phone, ranges: [] })}>Show Throughout</Button>
+            </div>
+          )}
+        </>
+      )}
+      {has("angle") && (
+        <Group>
+          <Row label="Second angle">
+            <Segmented label="Second angle" value={angle.mode} onChange={(m) => setAngle({ ...angle, mode: m })} options={[
+              { value: "off", label: "Off" }, { value: "pip", label: "Inset" }, { value: "split", label: "Split" },
+            ]} />
+          </Row>
+        </Group>
+      )}
+      {angle.broll.length > 0 && (
+        <div className="lines">
+          {angle.broll.map((b, i) => (
+            <div key={i} className="line">
+              <time>{mmss(b.start)}</time>
+              <span className="hstack"><span className="spacer">{ANGLE_LABEL[b.track]} until {mmss(b.end)}</span>
+                <Button kind="plain" onClick={() => setAngle({ ...angle, broll: angle.broll.filter((_, j) => j !== i) })}>Remove</Button></span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="hstack">
+        <Button kind="primary" disabled={busy || !changed} onClick={() => run("phone", "Rendering the layout", () => api.setLayout(v.id, phone, angle), "Layout applied to shares and exports.")}>Apply Layout</Button>
+        {changed && <Button kind="plain" onClick={() => { setPhone(v.phone); setAngle(v.angle); }}>Reset</Button>}
+      </div>
+      <TaskStatus {...report("phone")} />
+    </section>
   );
 }
 

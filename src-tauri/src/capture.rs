@@ -24,6 +24,12 @@ pub struct Device {
 pub struct Devices {
     pub screens: Vec<Device>,
     pub mics: Vec<Device>,
+    /// Cameras, including an iPhone used as a Continuity Camera (listed under the phone's name).
+    #[serde(default)]
+    pub cameras: Vec<Device>,
+    /// iPhone and iPad screens connected over USB (shown once the ffmpeg patch allows them).
+    #[serde(default)]
+    pub phones: Vec<Device>,
 }
 
 impl Devices {
@@ -84,9 +90,20 @@ pub fn parse_devices(log: &str) -> Devices {
             d.mics.push(dev);
         } else if name.starts_with("Capture screen") {
             d.screens.push(dev);
+        } else if is_phone_screen(name) {
+            d.phones.push(dev);
+        } else {
+            d.cameras.push(dev);
         }
     }
     d
+}
+
+/// A USB iPhone or iPad screen is listed under the device's name ("Ana's iPhone"); its Continuity
+/// Camera ends in "Camera", and Desk View in "Desk View Camera".
+fn is_phone_screen(name: &str) -> bool {
+    let n = name.to_lowercase();
+    (n.contains("iphone") || n.contains("ipad")) && !n.contains("camera")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,12 +111,88 @@ pub struct StartOptions {
     pub screen: String,
     /// None records without sound.
     pub mic: Option<String>,
+    /// A phone screen recorded next to the laptop screen, as its own file.
+    #[serde(default)]
+    pub phone: Option<PhoneSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PhoneSource {
+    /// An iPhone or iPad over USB: an AVFoundation device index.
+    Ios {
+        index: String,
+        name: String,
+        #[serde(default)]
+        layout: Option<crate::phone::PhonePanel>,
+    },
+    /// An Android phone through scrcpy: the adb serial.
+    Android {
+        serial: String,
+        name: String,
+        #[serde(default)]
+        layout: Option<crate::phone::PhonePanel>,
+    },
+}
+
+impl PhoneSource {
+    pub fn name(&self) -> &str {
+        match self {
+            PhoneSource::Ios { name, .. } | PhoneSource::Android { name, .. } => name,
+        }
+    }
+    pub fn layout(&self) -> crate::phone::PhonePanel {
+        match self {
+            PhoneSource::Ios { layout, .. } | PhoneSource::Android { layout, .. } => {
+                layout.clone().unwrap_or_default()
+            }
+        }
+    }
+}
+
+/// When a process started delivering frames: host clock seconds (AVFoundation timestamps; the same
+/// clock for every process on this Mac) and wall-clock ms.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Started {
+    pub host: Option<f64>,
+    pub wall_ms: u64,
+}
+type StartCell = Arc<Mutex<Option<Started>>>;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// ffmpeg prints "  Duration: N/A, start: 105623.123456, bitrate: N/A" once the input delivers.
+pub fn parse_start(line: &str) -> Option<f64> {
+    let rest = line.split("start: ").nth(1)?;
+    rest.split(',').next()?.trim().parse().ok()
+}
+
+/// Offset of a phone part against its screen segment, in seconds: exact on the shared host clock
+/// when both are AVFoundation (USB iPhone), else from wall-clock times.
+pub fn part_offset(screen: Started, phone: Started) -> f64 {
+    match (screen.host, phone.host) {
+        (Some(a), Some(b)) => b - a,
+        _ => (phone.wall_ms as f64 - screen.wall_ms as f64) / 1000.0,
+    }
+}
+
+struct PhoneRec {
+    source: PhoneSource,
+    parts: Vec<(PathBuf, StartCell)>,
+    child: Option<Child>,
 }
 
 struct Session {
     id: String,
     opts: StartOptions,
     segments: Vec<PathBuf>,
+    starts: Vec<StartCell>,
+    phone: Option<PhoneRec>,
     child: Option<Child>,
     log: Arc<Mutex<Vec<String>>>,
     elapsed_before: f64,
@@ -166,10 +259,18 @@ async fn spawn_segment(s: &mut Session) -> Result<()> {
         .spawn()
         .context("ffmpeg is missing from this app. Reinstall it (developers: node scripts/fetch-sidecars.mjs)")?;
     let log = s.log.clone();
+    let started: StartCell = Default::default();
+    let cell = started.clone();
     if let Some(err) = child.stderr.take() {
         tokio::spawn(async move {
             let mut lines = BufReader::new(err).lines();
             while let Ok(Some(l)) = lines.next_line().await {
+                if let Some(host) = parse_start(&l) {
+                    cell.lock().unwrap().get_or_insert(Started {
+                        host: Some(host),
+                        wall_ms: now_ms(),
+                    });
+                }
                 let mut g = log.lock().unwrap();
                 g.push(l);
                 if g.len() > 40 {
@@ -188,12 +289,124 @@ async fn spawn_segment(s: &mut Session) -> Result<()> {
         );
     }
     s.segments.push(seg);
+    s.starts.push(started);
     s.child = Some(child);
     s.resumed_at = Some(Instant::now());
+    if s.phone.is_some() {
+        spawn_phone(s).await?;
+    }
     Ok(())
 }
 
+/// Records the phone screen for the current segment, as its own file.
+async fn spawn_phone(s: &mut Session) -> Result<()> {
+    let id = s.id.clone();
+    let Some(p) = s.phone.as_mut() else {
+        return Ok(());
+    };
+    let file = library::dir(&id).join(format!("tracks/phone-{}.mp4", p.parts.len()));
+    std::fs::create_dir_all(file.parent().expect("tracks folder"))?;
+    let mut cmd = match &p.source {
+        PhoneSource::Ios { index, .. } => {
+            let mut c = Command::new(media::tool("ffmpeg"));
+            c.args([
+                "-hide_banner",
+                "-y",
+                "-f",
+                "avfoundation",
+                "-framerate",
+                "30",
+                "-i",
+            ])
+            .arg(format!("{index}:none"))
+            .args(["-c:v", "h264_videotoolbox", "-b:v", "8M", "-realtime", "1"])
+            .arg(&file)
+            .stdin(Stdio::piped());
+            c
+        }
+        PhoneSource::Android { serial, .. } => {
+            let adb = crate::android::adb_path().context(
+                "Android tools are not installed. Open Connect Phone and choose Get Android Tools.",
+            )?;
+            let mut c = Command::new(media::tool("scrcpy"));
+            c.args(crate::android::record_args(serial, &file))
+                .env("ADB", adb)
+                .env("SCRCPY_SERVER_PATH", crate::android::scrcpy_server())
+                .stdin(Stdio::null());
+            c
+        }
+    };
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("could not start the phone recording")?;
+    let started: StartCell = Default::default();
+    // ffmpeg reports the host-clock start; scrcpy says when recording begins.
+    for stream in [
+        child
+            .stdout
+            .take()
+            .map(|o| Box::new(o) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+        child
+            .stderr
+            .take()
+            .map(|e| Box::new(e) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let cell = started.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stream).lines();
+            while let Ok(Some(l)) = lines.next_line().await {
+                let host = parse_start(&l);
+                if host.is_some() || l.contains("Recording started") {
+                    cell.lock().unwrap().get_or_insert(Started {
+                        host,
+                        wall_ms: now_ms(),
+                    });
+                }
+            }
+        });
+    }
+    p.parts.push((file, started));
+    p.child = Some(child);
+    Ok(())
+}
+
+async fn stop_phone(p: &mut PhoneRec) {
+    if let Some(mut child) = p.child.take() {
+        match p.source {
+            PhoneSource::Ios { .. } => {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(b"q").await;
+                }
+            }
+            // scrcpy finalizes the file on SIGINT, like Ctrl+C.
+            PhoneSource::Android { .. } => {
+                if let Some(pid) = child.id() {
+                    let _ = Command::new("/bin/kill")
+                        .args(["-INT", &pid.to_string()])
+                        .status()
+                        .await;
+                }
+            }
+        }
+        if tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .is_err()
+        {
+            let _ = child.kill().await;
+        }
+    }
+}
+
 async fn stop_child(s: &mut Session) {
+    if let Some(p) = s.phone.as_mut() {
+        stop_phone(p).await;
+    }
     if let Some(mut child) = s.child.take() {
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(b"q").await;
@@ -220,8 +433,14 @@ impl Capture {
         std::fs::create_dir_all(library::dir(&id))?;
         let mut s = Session {
             id: id.clone(),
+            phone: opts.phone.clone().map(|source| PhoneRec {
+                source,
+                parts: vec![],
+                child: None,
+            }),
             opts,
             segments: vec![],
+            starts: vec![],
             child: None,
             log: Default::default(),
             elapsed_before: 0.0,
@@ -293,7 +512,50 @@ impl Capture {
             let _ = std::fs::remove_dir_all(library::dir(&s.id));
             bail!("nothing was recorded");
         }
-        finish(&s.id, &parts).await
+        // Screen segment lengths, before they are joined.
+        let mut lens = vec![];
+        for p in &parts {
+            lens.push(media::duration(p).await.unwrap_or(0.0));
+        }
+        let mut v = finish(&s.id, &parts).await?;
+        let first = s.starts.first().and_then(|c| *c.lock().unwrap());
+        v.rec_started_ms = first.map(|f| f.wall_ms).unwrap_or_else(now_ms);
+        v.rec_duration = v.duration;
+        if let Some(p) = &s.phone {
+            let mut pieces = vec![];
+            for (k, (file, cell)) in p.parts.iter().enumerate() {
+                let (Some(screen), Some(len)) = (
+                    s.starts.get(k).and_then(|c| *c.lock().unwrap()),
+                    lens.get(k),
+                ) else {
+                    continue;
+                };
+                if !library::exists(file) {
+                    continue;
+                }
+                let phone_start = cell.lock().unwrap().unwrap_or(Started {
+                    host: None,
+                    wall_ms: screen.wall_ms,
+                });
+                pieces.push((file.clone(), part_offset(screen, phone_start), *len));
+            }
+            if !pieces.is_empty() {
+                let out = crate::phone::track_path(&s.id, crate::phone::TrackKind::PhoneScreen);
+                crate::phone::normalize_parts(&pieces, &out).await?;
+                for (f, _, _) in &pieces {
+                    let _ = std::fs::remove_file(f);
+                }
+                v.tracks.push(crate::phone::Track {
+                    kind: crate::phone::TrackKind::PhoneScreen,
+                    device: p.source.name().to_string(),
+                    offset: pieces[0].1,
+                });
+                v.phone = p.source.layout();
+            }
+        }
+        library::save(&v)?;
+        crate::phone::render(&v.id).await?;
+        Ok(v)
     }
 }
 
@@ -327,6 +589,46 @@ pub async fn finish(id: &str, parts: &[PathBuf]) -> Result<Video> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn phones_cameras_and_start_times() {
+        assert!(is_phone_screen("Ana\u{2019}s iPhone"));
+        assert!(!is_phone_screen("Ana\u{2019}s iPhone Camera"));
+        assert!(!is_phone_screen("Ana\u{2019}s iPhone Desk View Camera"));
+        assert_eq!(
+            parse_start("  Duration: N/A, start: 105623.123456, bitrate: N/A"),
+            Some(105623.123456)
+        );
+        assert_eq!(parse_start("frame=  10 fps=30"), None);
+        // Same host clock: exact. Otherwise wall clock.
+        let screen = Started {
+            host: Some(100.0),
+            wall_ms: 5_000,
+        };
+        assert!(
+            (part_offset(
+                screen,
+                Started {
+                    host: Some(100.35),
+                    wall_ms: 9_999
+                }
+            ) - 0.35)
+                .abs()
+                < 1e-9
+        );
+        assert_eq!(
+            part_offset(
+                screen,
+                Started {
+                    host: None,
+                    wall_ms: 5_200
+                }
+            ),
+            0.2
+        );
+    }
+
     #[test]
     fn parses_avfoundation_device_list() {
         let log = "[AVFoundation indev @ 0x1] AVFoundation video devices:\n\
@@ -341,6 +643,7 @@ mod tests {
         assert_eq!(named.screens[0].name, "Built-in Retina Display");
         assert_eq!(named.screens[1].name, "Display 2");
         assert_eq!(d.screens.len(), 2);
+        assert_eq!(d.cameras[0].name, "FaceTime HD Camera");
         assert_eq!(d.screens[1].index, "2");
         assert_eq!(d.mics[0].name, "MacBook Pro Microphone");
     }

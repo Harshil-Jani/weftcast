@@ -83,10 +83,12 @@
       "binaries/ffprobe",
       "binaries/cloudflared",
       "binaries/yt-dlp",
+      "binaries/scrcpy",
       "binaries/cli"
     ],
     "resources": {
-      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "binaries/scrcpy-server": "scrcpy-server"
     },
     "macOS": {
       "minimumSystemVersion": "12.3",

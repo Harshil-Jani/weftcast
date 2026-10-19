@@ -60,7 +60,7 @@ async fn run(args: &[String]) -> anyhow::Result<()> {
             let devs = capture::devices().await?;
             let rec = capture::Capture::default();
             let screen = devs.screens.first().map(|d| d.index.clone()).ok_or_else(|| anyhow::anyhow!("no screen to record"))?;
-            rec.start(capture::StartOptions { screen, mic: devs.mics.first().map(|m| m.index.clone()) }).await?;
+            rec.start(capture::StartOptions { screen, mic: devs.mics.first().map(|m| m.index.clone()), phone: None }).await?;
             tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
             let v = rec.stop().await?;
             json!({"video_id": v.id, "duration": v.duration})
