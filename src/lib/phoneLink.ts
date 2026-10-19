@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { base, type PairRole } from "./api";
+import { base, type PairRole, type PairedPhone } from "./api";
 
-export type PairState = { paired: boolean; role?: PairRole; connected?: boolean; device?: string | null; offer?: string | null; answered?: boolean };
+/** A connected phone, as this app's windows see it. */
+export type LivePhone = { id: string; role: PairRole; epoch: number; device: string | null; offer: string | null; answered: boolean };
+export type PairState = { paired: boolean; connected: boolean; device: string | null; pending: { id: string; role: PairRole } | null; phones: LivePhone[] };
 
 async function post(path: string, body: unknown) {
   await fetch(`${await base()}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -11,6 +14,30 @@ export async function pairState(): Promise<PairState> {
   const r = await fetch(`${await base()}/api/pair/state`);
   return r.json();
 }
+
+export type PhoneStatus = { connected: boolean; device: string | null; phones: LivePhone[] };
+
+/** Whether a phone is connected right now, and which; polled for the status dots. */
+export function usePhoneStatus(ms = 1500): PhoneStatus {
+  const [s, set] = useState<PhoneStatus>({ connected: false, device: null, phones: [] });
+  useEffect(() => {
+    let live = true;
+    const tick = () => pairState().then((p) => live && set({ connected: !!p.connected, device: p.device ?? null, phones: p.phones ?? [] })).catch(() => {});
+    tick();
+    const t = window.setInterval(tick, ms);
+    return () => { live = false; clearInterval(t); };
+  }, [ms]);
+  return s;
+}
+
+/** One phone's job (`id`), or the job the next phone gets (no `id`). */
+export const setPairRole = (role: PairRole, id?: string) => post("/api/pair/role", { role, id });
+export const disconnectPhone = (id: string) => post("/api/pair/disconnect", { id });
+export async function pairedPhones(): Promise<PairedPhone[]> {
+  const r = await fetch(`${await base()}/api/pair/phones`);
+  return (await r.json()).phones ?? [];
+}
+export const forgetPhone = (id: string) => post("/api/pair/phones/forget", { id });
 
 /** Recording status for the phone's remote tab. */
 export const postStatus = (s: { recording: boolean; paused: boolean; elapsed: number; level: number }) => post("/api/pair/status", s).catch(() => {});
@@ -42,20 +69,22 @@ export function receivePhone(role: PairRole, onStream: (s: MediaStream | null, d
     if (stopped) return;
     try {
       const st = await pairState();
-      if (st.paired && st.role === role && st.offer && st.offer !== answered) {
-        answered = st.offer;
-        device = st.device || "Phone";
+      const mine = (st.phones ?? []).find((p) => p.role === role);
+      if (mine?.offer && mine.offer !== answered) {
+        answered = mine.offer;
+        device = mine.device || "Phone";
         pc?.close();
         const conn = new RTCPeerConnection({ iceServers: [] });
         pc = conn;
         conn.ontrack = (e) => { stream = e.streams[0] ?? new MediaStream([e.track]); onStream(stream, device); };
         conn.onconnectionstatechange = () => { if (["failed", "closed"].includes(conn.connectionState)) { stream = null; onStream(null, device); } };
-        await conn.setRemoteDescription({ type: "offer", sdp: st.offer });
+        await conn.setRemoteDescription({ type: "offer", sdp: mine.offer });
         await conn.setLocalDescription(await conn.createAnswer());
         await settle(conn);
-        await post("/api/pair/answer", { sdp: conn.localDescription?.sdp });
+        await post("/api/pair/answer", { id: mine.id, sdp: conn.localDescription?.sdp });
       }
-      if (!st.paired && pc) { pc.close(); pc = null; stream = null; onStream(null, device); }
+      // No phone in this job any more (it left, or moved to another job): drop its picture.
+      if (!mine && pc) { pc.close(); pc = null; answered = ""; stream = null; onStream(null, device); }
     } catch { /* the local server is not up yet; try again */ }
     timer = window.setTimeout(tick, 700);
   };

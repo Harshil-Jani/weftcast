@@ -18,6 +18,52 @@ pub fn installed() -> bool {
     media::available("cloudflared")
 }
 
+/// Waits until the tunnel's hostname is in public DNS and answers, using DNS over HTTPS and a
+/// request pinned to that address, so the system's DNS cache is never touched while it is new.
+async fn wait_ready(url: &str) -> Result<()> {
+    let host = url
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
+    let doh = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    for _ in 0..40 {
+        let answer: Option<std::net::IpAddr> = async {
+            let j: serde_json::Value = doh
+                .get(format!("https://1.1.1.1/dns-query?name={host}&type=A"))
+                .header("accept", "application/dns-json")
+                .send()
+                .await
+                .ok()?
+                .json()
+                .await
+                .ok()?;
+            j["Answer"]
+                .as_array()?
+                .iter()
+                .find_map(|a| a["data"].as_str()?.parse().ok())
+        }
+        .await;
+        if let Some(ip) = answer {
+            let pinned = reqwest::Client::builder()
+                .resolve(&host, std::net::SocketAddr::new(ip, 443))
+                .timeout(std::time::Duration::from_secs(5))
+                .build()?;
+            if pinned
+                .get(format!("https://{host}/v/ready-check"))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().as_u16() == 404)
+            {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+    }
+    anyhow::bail!("the link did not come up")
+}
+
 impl Tunnel {
     pub async fn url(&self) -> Option<String> {
         self.inner.lock().await.as_ref().map(|(_, u)| u.clone())
@@ -62,17 +108,10 @@ impl Tunnel {
         )?;
         // Keep draining stderr so cloudflared never blocks on a full pipe.
         tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-        // The hostname takes a few seconds to resolve; only hand out a link that already works.
-        let probe = format!("{url}/v/ready-check");
-        for _ in 0..20 {
-            if reqwest::get(&probe)
-                .await
-                .is_ok_and(|r| r.status().as_u16() == 404)
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        }
+        // The hostname takes a few seconds to exist. Only hand out a link that already works, and
+        // check it without asking this Mac's resolver: an early "no such host" would be cached and
+        // break the link here (and a phone that scans too early would cache it too).
+        let _ = wait_ready(&url).await;
         *g = Some((child, url.clone()));
         Ok(url)
     }

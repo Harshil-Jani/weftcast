@@ -3,10 +3,11 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { Menu, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Clapperboard, Film, Link2, Settings as Gear, Smartphone, Video as VideoIcon } from "lucide-react";
-import { api, base, brand, loadPrefs, mmss, type Video } from "../lib/api";
+import { Clapperboard, Film, Link2, RectangleVertical, Settings as Gear, Smartphone, Video as VideoIcon } from "lucide-react";
+import { api, base, brand, DEFAULT_PANEL, loadPrefs, mmss, savePrefs, type Device, type Video } from "../lib/api";
 import { beginRecording, newRecording, type Command } from "../lib/recording";
-import { Button, Icon, SidebarItem } from "../components/ui";
+import { Button, Icon, SidebarItem, StatusDot } from "../components/ui";
+import { usePhoneStatus } from "../lib/phoneLink";
 import { VideoCard } from "../components/VideoCard";
 import Player from "./Player";
 import Settings from "./Settings";
@@ -27,6 +28,7 @@ export default function App() {
   const [sheet, setSheet] = useState<"settings" | "onboarding" | "phone" | null>(null);
   const [sidebar, setSidebar] = useState(() => stored("sidebar", true));
   const [command, setCommand] = useState<Command>(null);
+  const phone = usePhoneStatus();
   const n = useRef(0);
 
   const refresh = useCallback(() => { api.list().then(setVideos); }, []);
@@ -89,8 +91,9 @@ export default function App() {
     <div className={`window ${sidebar ? "" : "no-sidebar"}`}>
       <aside className="sidebar" data-tauri-drag-region aria-label="Sidebar">
         <SidebarItem icon={Film} label="Library" current={view === "library" && !open} count={videos?.length} onClick={() => go("library")} />
-        <SidebarItem icon={Smartphone} label="Shorts" current={view === "shorts"} onClick={() => go("shorts")} />
+        <SidebarItem icon={RectangleVertical} label="Shorts" current={view === "shorts"} onClick={() => go("shorts")} />
         <SidebarItem icon={Link2} label="Shared" current={view === "shared"} onClick={() => go("shared")} />
+        <SidebarItem icon={Smartphone} label="Phone" current={sheet === "phone"} dot={phone.connected} onClick={() => setSheet("phone")} />
         <div className="foot">
           <SidebarItem icon={Gear} label="Settings" current={sheet === "settings"} onClick={() => setSheet("settings")} />
         </div>
@@ -105,18 +108,55 @@ export default function App() {
           <Player key={open} id={open} command={command} onBack={() => { setOpen(null); refresh(); }}
             onDeleted={() => { setOpen(null); refresh(); }} onOpen={(id) => { refresh(); setOpen(id); }} />
         ) : (
-          <Library videos={videos} srv={srv} onOpen={setOpen} onMenu={contextMenu} />
+          <Library videos={videos} srv={srv} onOpen={setOpen} onMenu={contextMenu} phone={phone} onPhone={() => setSheet("phone")} />
         )}
       </main>
 
-      {sheet === "settings" && <Settings onClose={() => setSheet(null)} />}
-      {sheet === "onboarding" && <Onboarding onDone={() => setSheet(null)} />}
+      {sheet === "settings" && <Settings onClose={() => setSheet(null)} onConnectPhone={() => setSheet("phone")} />}
+      {sheet === "onboarding" && <Onboarding onDone={(next) => setSheet(next === "phone" ? "phone" : null)} />}
       {sheet === "phone" && <ConnectPhone onClose={() => setSheet(null)} />}
     </div>
   );
 }
 
-function Library({ videos, srv, onOpen, onMenu }: { videos: Video[] | null; srv: string; onOpen: (id: string) => void; onMenu: (v: Video) => void }) {
+/** Notices an iPhone plugged in over USB and offers to show its screen in recordings. */
+function useUsbIphone() {
+  const [phone, setPhone] = useState<Device | null>(null);
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      try {
+        const rec = await api.state();
+        if (rec.recording) return;
+        const d = await api.phoneDevices();
+        const chosen = loadPrefs()?.phone;
+        const dismissed = (() => { try { return sessionStorage.getItem("usb-dismissed") ?? ""; } catch { return ""; } })();
+        const found = d.ios.find((x) => x.name !== dismissed && !(chosen?.kind === "ios" && chosen.index === x.index));
+        if (live) setPhone(found ?? null);
+      } catch { /* devices not available right now */ }
+    };
+    tick();
+    const t = window.setInterval(tick, 8000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  const use = () => {
+    if (!phone) return;
+    const p = loadPrefs() ?? { screen: "", mic: null, camera: true };
+    savePrefs({ ...p, phone: { kind: "ios", index: phone.index, name: phone.name, layout: DEFAULT_PANEL } });
+    setPhone(null);
+  };
+  const later = () => {
+    if (phone) { try { sessionStorage.setItem("usb-dismissed", phone.name); } catch { /* shown again next launch */ } }
+    setPhone(null);
+  };
+  return { phone, use, later };
+}
+
+function Library({ videos, srv, onOpen, onMenu, phone, onPhone }: {
+  videos: Video[] | null; srv: string; onOpen: (id: string) => void; onMenu: (v: Video) => void;
+  phone: { connected: boolean; device: string | null }; onPhone: () => void;
+}) {
+  const usb = useUsbIphone();
   const total = videos?.reduce((s, v) => s + v.duration, 0) ?? 0;
   return (
     <>
@@ -124,8 +164,20 @@ function Library({ videos, srv, onOpen, onMenu }: { videos: Video[] | null; srv:
         <h1 className="title" data-tauri-drag-region>Library</h1>
         {videos && videos.length > 0 && <span className="subtitle num" data-tauri-drag-region>{videos.length} {videos.length === 1 ? "video" : "videos"}, {mmss(total)}</span>}
         <span className="spacer" data-tauri-drag-region />
+        <Button icon={Smartphone} onClick={onPhone} title={phone.connected ? `Phone connected: ${phone.device}` : "Connect Phone (Shift Command P)"}>
+          {phone.connected ? phone.device : "Connect Phone"}<StatusDot on={phone.connected} />
+        </Button>
         <Button kind="primary" icon={VideoIcon} onClick={newRecording} title="New Recording (Command N)">New Recording</Button>
       </div>
+      {usb.phone && (
+        <div className="banner" role="status">
+          <Icon as={Smartphone} size={20} />
+          <p><b>{usb.phone.name.match(/ipad/i) ? "iPad" : "iPhone"} detected.</b> Show its screen in recordings?</p>
+          <span className="spacer" />
+          <Button onClick={usb.later}>Not Now</Button>
+          <Button kind="primary" onClick={usb.use}>Use</Button>
+        </div>
+      )}
       <div className="page">
         {videos === null ? (
           <div className="lib-grid" aria-busy="true" aria-label="Loading library">

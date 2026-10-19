@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
-import { CircleCheck, KeyRound, Terminal } from "lucide-react";
+import { CircleCheck, KeyRound, Smartphone, Terminal } from "lucide-react";
 import { api, brand, errText, type AiStatus } from "../lib/api";
 import { Button, Group, Icon, Row, Sheet, TaskStatus, type Status } from "../components/ui";
 
 /** First run: connect Claude (your own Claude Code login or an API key), or skip. */
-export default function Onboarding({ onDone }: { onDone: () => void }) {
+export default function Onboarding({ onDone }: { onDone: (next?: "phone") => void }) {
   const [st, setSt] = useState<AiStatus | null>(null);
   const [key, setKey] = useState("");
   const [msg, setMsg] = useState<Status>(null);
   const check = () => api.aiStatus().then(setSt);
   useEffect(() => { check(); }, []);
 
-  const finish = async (provider: "cli" | "api", apiKey: string | null = null) => {
-    try { await api.saveSettings(provider, apiKey, undefined, { onboarded: true }); onDone(); }
+  const finish = async (provider: "cli" | "api", apiKey: string | null = null, next?: "phone") => {
+    try { await api.saveSettings(provider, apiKey, undefined, { onboarded: true }); onDone(next); }
     catch (e) { setMsg({ text: errText(e), error: true }); }
   };
   const cliOk = !!st?.cli_installed && st.cli_logged_in === true;
@@ -40,6 +40,15 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           <Row label={<span className="hstack"><span className="secondary"><Icon as={KeyRound} /></span>API key</span>} detail="Stored in the macOS Keychain, never in a file.">
             <input className="field" type="password" style={{ width: 200 }} placeholder="sk-ant-" aria-label="Anthropic API key" value={key} onChange={(e) => setKey(e.target.value)} />
             <Button kind="primary" disabled={!key.trim()} onClick={() => finish("api", key)}>Save</Button>
+          </Row>
+        </Group>
+      </div>
+      <div>
+        <h3 className="section-head">Connect your phone (optional)</h3>
+        <Group>
+          <Row label={<span className="hstack"><span className="secondary"><Icon as={Smartphone} /></span>Use your phone</span>}
+            detail="As a camera, a second angle or a remote. Or show its screen next to yours.">
+            <Button onClick={() => finish(st?.api_key_set ? "api" : "cli", null, "phone")}>Connect Phone{"\u2026"}</Button>
           </Row>
         </Group>
       </div>

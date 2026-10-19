@@ -19,8 +19,14 @@ export type AnglePanel = { mode: "off" | "pip" | "split"; broll: { start: number
 export const DEFAULT_PANEL: PhonePanel = { enabled: true, layout: "right", size: "M", pip: [0.86, 0.72], ranges: [] };
 export type PhoneSource =
   | { kind: "ios"; index: string; name: string; layout?: PhonePanel }
-  | { kind: "android"; serial: string; name: string; layout?: PhonePanel };
-export type PairRole = "camera" | "angle";
+  | { kind: "android"; serial: string; name: string; layout?: PhonePanel }
+  | { kind: "airplay"; name: string; layout?: PhonePanel };
+/** AirPlay Receiver on this Mac (null: could not tell), and the iPhone mirroring to it, if any. */
+export type AirplayStatus = { receiver: boolean | null; mirroring: { width: number; height: number } | null };
+export type PairRole = "camera" | "angle" | "remote";
+/** How the phone reaches the Mac: "link" (valid certificate, no warning) or "local" (offline: trust once). */
+export type PhoneLink = { mode: "link" | "local"; url: string; short: string; code: string; svg: string };
+export type PairedPhone = { id: string; name: string; role: PairRole; created_ms: number; last_seen_ms: number };
 export type PhoneDevices = { ios: Device[]; cameras: Device[]; android: { serial: string; model: string; state: string }[]; adb: boolean; adb_terms: string };
 export type Note = { time: number; text: string };
 export type Clip = { id: string; start: number; end: number; title: string; reason: string; score: number; score_reason: string; caption: string; selected: boolean };
@@ -69,8 +75,13 @@ export const api = {
   hudLayout: (mode: "setup" | "setup-phone" | "countdown" | "recording" | "recording-phone" | "error") => invoke<void>("hud_layout", { mode }),
   bubbleSize: (diameter: number) => invoke<void>("bubble_size", { diameter }),
   showMain: () => invoke<void>("show_main"),
-  phonePair: (role: PairRole, isPublic: boolean) => invoke<{ url: string; svg: string; lan: boolean }>("phone_pair", { role, public: isPublic }),
-  phoneUnpair: () => invoke<void>("phone_unpair"),
+  phoneOpen: (role: PairRole) => invoke<PhoneLink>("phone_open", { role }),
+  phoneClose: () => invoke<void>("phone_close"),
+  phoneAirdrop: (url: string) => invoke<void>("phone_airdrop", { url }),
+  airplayStatus: () => invoke<AirplayStatus>("airplay_status"),
+  openAirplaySettings: () => invoke<void>("open_airplay_settings"),
+  androidWifiPair: (addr: string, code: string) => invoke<void>("android_wifi_pair", { addr, code }),
+  androidWifiConnect: (addr: string) => invoke<void>("android_wifi_connect", { addr }),
   phoneDevices: () => invoke<PhoneDevices>("phone_devices"),
   installAndroidTools: () => invoke<string>("install_android_tools"),
   setLayout: (id: string, phone: PhonePanel, angle: AnglePanel) => invoke<Video>("set_layout", { id, phone, angle }),

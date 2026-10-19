@@ -47,7 +47,7 @@ code, .mono { font-family: var(--mono); font-size: 11px; }
 .btn.primary { background: var(--accent-fill); border-color: transparent; color: var(--on-accent); font-weight: 500; }
 .btn.primary:active:not(:disabled) { background: color-mix(in oklab, var(--accent-fill) 85%, black); }
 .btn.primary:disabled { background: var(--fill-strong); color: var(--label-2); opacity: 1; }
-.btn.destructive { color: var(--red); }
+.btn.destructive { color: var(--red-on-control); }
 .btn.plain { background: transparent; border-color: transparent; box-shadow: none; }
 .btn.plain:hover:not(:disabled) { background: var(--fill); }
 .btn.icon { width: var(--h-large); height: var(--h-large); padding: 0; background: transparent; border-color: transparent; box-shadow: none; color: var(--label-2); }
@@ -250,10 +250,25 @@ kbd { font: var(--t-caption); font-family: var(--font); padding: 1px 4px; border
 .radio-list label.disabled { color: var(--label-3); }
 
 /* ---------- Connect Phone ---------- */
-.pair { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: var(--s5); align-items: start; }
-.pair .qr { width: 184px; height: 184px; padding: var(--s2); border-radius: var(--r-group); background: #ffffff; box-shadow: inset 0 0 0 0.5px var(--separator); display: grid; place-items: center; }
-.pair .qr svg { width: 168px; height: 168px; display: block; }
-.pair .callout svg { vertical-align: -2px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-3); flex: none; }
+.status-dot.on { background: var(--green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 25%, transparent); }
+.side-item .status-dot { margin-left: auto; }
+.banner { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3) var(--s2) var(--s5); background: var(--accent-soft); box-shadow: inset 0 -0.5px 0 var(--separator); }
+.banner svg { color: var(--accent-text); flex: none; }
+.banner b { font-weight: 600; }
+.pair { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: var(--s6); align-items: center; }
+.pair .qr { width: 264px; height: 264px; padding: var(--s3); border-radius: var(--r-group); background: #ffffff; box-shadow: inset 0 0 0 0.5px var(--separator); display: grid; place-items: center; }
+.pair .qr svg { width: 240px; height: 240px; display: block; }
+.pair-text { gap: var(--s3); }
+.pair-state { display: flex; align-items: center; gap: var(--s2); font: var(--t-headline); }
+.pair-state.ok { font: var(--t-title3); }
+.backup { padding-top: var(--s3); box-shadow: inset 0 0.5px 0 var(--separator); display: grid; gap: var(--s2); }
+.backup-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s4); }
+.backup-row .mono { font-size: 13px; color: var(--label); }
+.backup-row .code { font: var(--t-title2); letter-spacing: 0.08em; }
+.offline-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s2); }
+.offline-steps li { display: flex; align-items: center; gap: var(--s3); }
+.step-icon { width: 32px; height: 32px; border-radius: var(--r-card); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); flex: none; }
 .layout-preview { position: relative; width: 100%; max-width: 400px; aspect-ratio: 16 / 9; border-radius: var(--r-card); background: var(--group); box-shadow: inset 0 0 0 0.5px var(--separator); overflow: hidden; }
 .layout-preview .laptop { position: absolute; border-radius: 4px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 30%, var(--fill-strong)), var(--fill-strong)); }
 .layout-preview .device { position: absolute; aspect-ratio: 9 / 19.5; top: 50%; transform: translateY(-50%); border-radius: 12% / 5.5%; background: var(--label-2); box-shadow: inset 0 0 0 3px #111, 0 2px 8px rgba(0, 0, 0, 0.25); }
@@ -320,7 +335,9 @@ kbd { font: var(--t-caption); font-family: var(--font); padding: 1px 4px; border
 .hud .split { display: inline-flex; gap: 2px; border-radius: var(--r-control); transition: background var(--fast) var(--ease); }
 .hud .split:hover { background: rgba(255, 255, 255, 0.12); }
 .hud .split .btn.icon:hover:not(:disabled) { background: transparent; }
-.hud .phone-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 180px; padding: 0 8px; height: 22px; border-radius: 11px; background: rgba(255, 255, 255, 0.1); color: #f5f5f7; font: var(--t-callout); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud .phone-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 14px; background: rgba(255, 255, 255, 0.16); color: #ffffff; font: var(--t-headline); white-space: nowrap; flex: none; }
+.hud .phone-btn:hover { background: rgba(255, 255, 255, 0.24); }
+.hud .phone-chip { border: 0; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 180px; padding: 0 8px; height: 22px; border-radius: 11px; background: rgba(255, 255, 255, 0.1); color: #f5f5f7; font: var(--t-callout); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hud .phone-chip i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #32d74b; }
 .hud .divider { width: 0.5px; height: 20px; background: rgba(255, 255, 255, 0.18); margin: 0 4px; }
 .hud .rec-btn { height: 28px; padding: 0 12px 0 10px; border-radius: 14px; border: 0; background: var(--recording); color: #fff; font: var(--t-headline); display: inline-flex; align-items: center; gap: 6px; }
@@ -351,3 +368,10 @@ kbd { font: var(--t-caption); font-family: var(--font); padding: 1px 4px; border
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 @media (max-width: 1100px) { :root { --inspector: 288px; --sidebar: 200px; } .page, .stage { padding-left: var(--s5); padding-right: var(--s5); } }
+
+/* Connect Phone: the cable fallback sits behind a disclosure, under the Wi-Fi options. */
+.disclosure { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px; border: 0; background: none; color: var(--label); font: var(--t-headline); border-radius: 6px; }
+.disclosure > svg:first-child { transition: transform 150ms ease-out; color: var(--label-2); }
+.disclosure[aria-expanded="true"] > svg:first-child { transform: rotate(90deg); }
+.disclosure:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .disclosure > svg:first-child { transition: none; } }

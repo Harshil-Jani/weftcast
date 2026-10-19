@@ -41,4 +41,11 @@ sha2 = "0.10"
 tauri-plugin-dialog = "=2.8.1"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# AirDrop for the phone pairing link (macOS sharing service).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSSharingService"] }

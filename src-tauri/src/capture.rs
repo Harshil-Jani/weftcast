@@ -126,9 +126,15 @@ pub enum PhoneSource {
         #[serde(default)]
         layout: Option<crate::phone::PhonePanel>,
     },
-    /// An Android phone through scrcpy: the adb serial.
+    /// An Android phone through scrcpy: the adb serial (a USB serial, or ip:port over Wi-Fi).
     Android {
         serial: String,
+        name: String,
+        #[serde(default)]
+        layout: Option<crate::phone::PhonePanel>,
+    },
+    /// An iPhone mirroring to this Mac over Wi-Fi with AirPlay: its window is recorded.
+    Airplay {
         name: String,
         #[serde(default)]
         layout: Option<crate::phone::PhonePanel>,
@@ -138,14 +144,16 @@ pub enum PhoneSource {
 impl PhoneSource {
     pub fn name(&self) -> &str {
         match self {
-            PhoneSource::Ios { name, .. } | PhoneSource::Android { name, .. } => name,
+            PhoneSource::Ios { name, .. }
+            | PhoneSource::Android { name, .. }
+            | PhoneSource::Airplay { name, .. } => name,
         }
     }
     pub fn layout(&self) -> crate::phone::PhonePanel {
         match self {
-            PhoneSource::Ios { layout, .. } | PhoneSource::Android { layout, .. } => {
-                layout.clone().unwrap_or_default()
-            }
+            PhoneSource::Ios { layout, .. }
+            | PhoneSource::Android { layout, .. }
+            | PhoneSource::Airplay { layout, .. } => layout.clone().unwrap_or_default(),
         }
     }
 }
@@ -298,6 +306,25 @@ async fn spawn_segment(s: &mut Session) -> Result<()> {
     Ok(())
 }
 
+/// The display showing the AirPlay window (as ffmpeg's device index) and the crop to that window.
+async fn airplay_input() -> Result<(String, String)> {
+    let snap = crate::airplay::snapshot().await?;
+    let w = crate::airplay::find_mirror(&snap).context(
+        "Your iPhone is not mirroring to this Mac. On the iPhone, open Control Center, tap Screen Mirroring and pick this Mac.",
+    )?;
+    let (i, d) = crate::airplay::display_of(&snap, w)
+        .context("The iPhone window is off screen. Move it onto a display.")?;
+    let main_h = snap.screens.first().map(|s| s.h).unwrap_or(d.h);
+    let screen = devices()
+        .await?
+        .screens
+        .into_iter()
+        .find(|s| s.name == format!("Capture screen {i}"))
+        .map(|s| s.index)
+        .context("could not find the display showing the iPhone")?;
+    Ok((screen, crate::airplay::crop(w, &d, main_h)))
+}
+
 /// Records the phone screen for the current segment, as its own file.
 async fn spawn_phone(s: &mut Session) -> Result<()> {
     let id = s.id.clone();
@@ -320,6 +347,35 @@ async fn spawn_phone(s: &mut Session) -> Result<()> {
             ])
             .arg(format!("{index}:none"))
             .args(["-c:v", "h264_videotoolbox", "-b:v", "8M", "-realtime", "1"])
+            .arg(&file)
+            .stdin(Stdio::piped());
+            c
+        }
+        PhoneSource::Airplay { .. } => {
+            let (screen, crop) = airplay_input().await?;
+            let mut c = Command::new(media::tool("ffmpeg"));
+            c.args([
+                "-hide_banner",
+                "-y",
+                "-f",
+                "avfoundation",
+                "-framerate",
+                "30",
+                "-capture_cursor",
+                "0",
+                "-i",
+            ])
+            .arg(format!("{screen}:none"))
+            .args([
+                "-vf",
+                &crop,
+                "-c:v",
+                "h264_videotoolbox",
+                "-b:v",
+                "8M",
+                "-realtime",
+                "1",
+            ])
             .arg(&file)
             .stdin(Stdio::piped());
             c
@@ -379,7 +435,7 @@ async fn spawn_phone(s: &mut Session) -> Result<()> {
 async fn stop_phone(p: &mut PhoneRec) {
     if let Some(mut child) = p.child.take() {
         match p.source {
-            PhoneSource::Ios { .. } => {
+            PhoneSource::Ios { .. } | PhoneSource::Airplay { .. } => {
                 if let Some(mut stdin) = child.stdin.take() {
                     let _ = stdin.write_all(b"q").await;
                 }

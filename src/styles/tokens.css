@@ -33,6 +33,8 @@
   --label-3: #8e8e93;          /* icons and disabled only, never body text */
   --on-accent: #ffffff;
   --red: #c4001a;
+  /* Red text on a grey push button (passes 4.5:1 on the button's own fill). */
+  --red-on-control: #c4001a;
   --green: #1f7a35;
   --orange: #b13500;
   --recording: #ff3b30;
@@ -88,6 +90,7 @@
     --label-2: #a1a1a6;
     --label-3: #7c7c80;
     --red: #ff6961;
+    --red-on-control: #ffa8a3;
     --green: #32d74b;
     --orange: #ff9f0a;
 

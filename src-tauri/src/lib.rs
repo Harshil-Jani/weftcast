@@ -1,5 +1,7 @@
 pub mod agent;
 pub mod ai;
+pub mod airdrop;
+pub mod airplay;
 pub mod android;
 pub mod brand;
 pub mod captions;
@@ -32,6 +34,8 @@ pub struct AppState {
     pub recorder: capture::Capture,
     pub tunnel: share::Tunnel,
     pub port: u16,
+    /// Who needs the tunnel: (Connect Phone, public share links). It stops when neither does.
+    pub tunnel_users: std::sync::Mutex<(bool, bool)>,
 }
 
 /// Transparent margin around the camera circle, so its shadow is not clipped by the window.
@@ -81,10 +85,10 @@ pub fn hud_layout(app: &AppHandle, mode: &str) {
     let (width, height) = match mode {
         "countdown" => (220.0, 220.0),
         "recording" => (260.0, 60.0),
-        "recording-phone" => (460.0, 60.0),
+        "recording-phone" => (440.0, 60.0),
         "error" => (480.0, 60.0),
         "setup-phone" => (640.0, 60.0),
-        _ => (480.0, 60.0),
+        _ => (600.0, 60.0),
     };
     let _ = w.set_size(LogicalSize::new(width, height));
     place(&w, true, mode == "countdown");
@@ -237,6 +241,7 @@ pub fn run() {
             recorder: Default::default(),
             tunnel: Default::default(),
             port,
+            tunnel_users: Default::default(),
         })
         .setup(move |app| {
             app.global_shortcut().register(toggle)?;
@@ -320,8 +325,13 @@ pub fn run() {
             commands::cancel_recording,
             commands::show_overlays,
             commands::hud_layout,
-            commands::phone_pair,
-            commands::phone_unpair,
+            commands::phone_open,
+            commands::phone_close,
+            commands::phone_airdrop,
+            commands::airplay_status,
+            commands::open_airplay_settings,
+            commands::android_wifi_pair,
+            commands::android_wifi_connect,
             commands::phone_devices,
             commands::install_android_tools,
             commands::set_layout,

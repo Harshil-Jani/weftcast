@@ -128,6 +128,7 @@ pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Res<V
     crate::show_overlays(&app, false, false);
     let _ = app.emit("recording-changed", false);
     crate::pairing::end_pairing();
+    release_phone_tunnel(&state).await;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -170,6 +171,7 @@ pub async fn cancel_recording(app: AppHandle, state: State<'_, AppState>) -> Res
     let _ = app.emit("recording-changed", false);
     let _ = app.emit("recording-discarded", ());
     crate::pairing::end_pairing();
+    release_phone_tunnel(&state).await;
     Ok(())
 }
 
@@ -397,13 +399,39 @@ pub fn set_public_questions(id: String, on: bool) -> Res<Video> {
 
 #[tauri::command]
 pub async fn share_start(state: State<'_, AppState>) -> Res<String> {
-    state.tunnel.start(state.port).await.map_err(e)
+    let url = state.tunnel.start(state.port).await.map_err(e)?;
+    state.tunnel_users.lock().unwrap().1 = true;
+    Ok(url)
 }
 
 #[tauri::command]
 pub async fn share_stop(state: State<'_, AppState>) -> Res<()> {
-    state.tunnel.stop().await;
+    let phone = {
+        let mut u = state.tunnel_users.lock().unwrap();
+        u.1 = false;
+        u.0
+    };
+    // A connected phone still talks to the Mac through it.
+    if !phone {
+        state.tunnel.stop().await;
+    }
     Ok(())
+}
+
+/// Connect Phone is done with the tunnel; stop it unless public links still need it.
+async fn release_phone_tunnel(state: &AppState) {
+    let share = {
+        let mut u = state.tunnel_users.lock().unwrap();
+        let was = u.0;
+        u.0 = false;
+        if !was {
+            return;
+        }
+        u.1
+    };
+    if !share {
+        state.tunnel.stop().await;
+    }
 }
 
 #[tauri::command]
@@ -724,30 +752,53 @@ pub fn reveal_path(path: String) -> Res<()> {
 
 // ---------- Phone ----------
 
-/// A QR code for the phone page. LAN (HTTPS, self-signed) by default; `public` uses the tunnel.
+/// Opens Connect Phone: a fresh code, and the address the phone opens. Normally the app's temporary
+/// public link (valid certificate, no warning on the phone); offline, the page on this network with
+/// this Mac's own certificate (`mode: "local"`, the phone asks once to trust it).
 #[tauri::command]
-pub async fn phone_pair(
-    state: State<'_, AppState>,
-    role: crate::pairing::Role,
-    public: bool,
-) -> Res<Value> {
+pub async fn phone_open(state: State<'_, AppState>, role: crate::pairing::Role) -> Res<Value> {
     let token = crate::pairing::PAIR
         .lock()
         .unwrap()
         .issue(role, std::time::Instant::now());
-    let base = if public {
-        state.tunnel.start(state.port).await.map_err(e)?
-    } else {
-        let (ip, port) = crate::pairing::start_lan().await.map_err(e)?;
-        format!("https://{ip}:{port}")
+    let code = crate::pairing::PAIR
+        .lock()
+        .unwrap()
+        .current()
+        .map(|p| p.code.clone())
+        .unwrap_or_default();
+    state.tunnel_users.lock().unwrap().0 = true;
+    let tunnel = tokio::time::timeout(
+        std::time::Duration::from_secs(25),
+        state.tunnel.start(state.port),
+    )
+    .await;
+    let (mode, base) = match tunnel {
+        Ok(Ok(url)) => ("link", url),
+        _ => {
+            state.tunnel_users.lock().unwrap().0 = false;
+            let (ip, port) = crate::pairing::start_lan().await.map_err(|_| {
+                "This Mac is offline and not on a network. Connect to Wi-Fi, then try again."
+                    .to_string()
+            })?;
+            ("local", format!("https://{ip}:{port}"))
+        }
     };
     let url = format!("{base}/phone#t={token}");
-    Ok(json!({"url": url, "svg": crate::pairing::qr_svg(&url).map_err(e)?, "lan": !public}))
+    let short = format!("{}/p", base.trim_start_matches("https://"));
+    Ok(
+        json!({"mode": mode, "url": url, "short": short, "code": code, "svg": crate::pairing::qr_svg(&url).map_err(e)?}),
+    )
 }
 
+/// Closing Connect Phone: without a connected phone the code is withdrawn and the link stops.
 #[tauri::command]
-pub fn phone_unpair() {
-    crate::pairing::end_pairing();
+pub async fn phone_close(state: State<'_, AppState>) -> Res<()> {
+    if !crate::pairing::PAIR.lock().unwrap().is_connected() {
+        crate::pairing::end_pairing();
+        release_phone_tunnel(&state).await;
+    }
+    Ok(())
 }
 
 /// USB phones: iPhones and iPads through AVFoundation, Android phones through adb.
@@ -789,4 +840,46 @@ pub fn show_main(app: AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+/// "Send to my iPhone": AirDrop the pairing link.
+#[tauri::command]
+pub fn phone_airdrop(app: AppHandle, url: String) -> Res<()> {
+    crate::airdrop::send(&app, &url).map_err(e)
+}
+
+/// Whether AirPlay Receiver is on and an iPhone is mirroring to this Mac right now.
+#[tauri::command]
+pub async fn airplay_status() -> Res<Value> {
+    let on = crate::airplay::receiver_on().await;
+    let snap = crate::airplay::snapshot().await.unwrap_or_default();
+    let mirror =
+        crate::airplay::find_mirror(&snap).map(|w| json!({"width": w.b.w, "height": w.b.h}));
+    Ok(json!({"receiver": on, "mirroring": mirror}))
+}
+
+/// Android over Wi-Fi, step 1: pair with the code from Wireless debugging.
+#[tauri::command]
+pub async fn android_wifi_pair(addr: String, code: String) -> Res<()> {
+    crate::android::wifi(crate::android::pair_args(&addr, &code).map_err(e)?)
+        .await
+        .map_err(e)
+}
+
+/// Android over Wi-Fi, step 2: connect to the address shown on Wireless debugging.
+#[tauri::command]
+pub async fn android_wifi_connect(addr: String) -> Res<()> {
+    crate::android::wifi(crate::android::connect_args(&addr).map_err(e)?)
+        .await
+        .map_err(e)
+}
+
+/// Opens AirPlay Receiver's settings (System Settings, General, AirDrop & Handoff).
+#[tauri::command]
+pub fn open_airplay_settings() -> Res<()> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.AirDrop-Handoff-Settings.extension")
+        .spawn()
+        .map_err(e)?;
+    Ok(())
 }

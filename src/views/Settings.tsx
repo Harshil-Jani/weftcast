@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { CircleCheck, CircleDashed } from "lucide-react";
+import { CircleCheck, CircleDashed, Smartphone } from "lucide-react";
+import { forgetPhone, pairedPhones } from "../lib/phoneLink";
+import type { PairedPhone } from "../lib/api";
 import { api, brand, errText, type AiStatus, type Provider, type Tools, type Voice, type WhisperModel } from "../lib/api";
 import { Button, Group, Icon, Row, Segmented, Sheet, Slider, TaskStatus, type Status } from "../components/ui";
 
 type VoiceMode = "off" | "auto" | "gain";
 
-export default function Settings({ onClose }: { onClose: () => void }) {
+export default function Settings({ onClose, onConnectPhone }: { onClose: () => void; onConnectPhone: () => void }) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [tools, setTools] = useState<Tools | null>(null);
   const [provider, setProvider] = useState<Provider>("cli");
@@ -71,6 +73,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
         <div className="after"><TaskStatus {...report("claude")} /></div>
       </div>
 
+      <Phones onConnect={onConnectPhone} />
+
       <div>
         <h3 className="section-head">New Recordings</h3>
         <Group>
@@ -126,5 +130,28 @@ function Check({ ok, label, children }: { ok?: boolean; label: string; children?
   return (
     <Row label={<span className="hstack"><span className={ok ? "ok" : "secondary"}><Icon as={ok ? CircleCheck : CircleDashed} label={ok ? "Ready" : "Missing"} /></span>{label}</span>}
       detail={ok ? "Bundled" : "Not found"}>{children}</Row>
+  );
+}
+
+/** Phones that connected before reconnect from their Home Screen icon. Forget stops that at once. */
+function Phones({ onConnect }: { onConnect: () => void }) {
+  const [list, setList] = useState<PairedPhone[] | null>(null);
+  const load = () => { pairedPhones().then(setList).catch(() => setList([])); };
+  useEffect(load, []);
+  const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <div>
+      <h3 className="section-head">Phones</h3>
+      <Group>
+        {list?.length === 0 && <Row label="No phones yet" detail="Phones you connect are remembered here." />}
+        {list?.map((p) => (
+          <Row key={p.id} label={<span className="hstack"><span className="secondary"><Icon as={Smartphone} /></span>{p.name}</span>}
+            detail={`${p.role === "angle" ? "Second angle" : "Face cam"}, last used ${when(p.last_seen_ms)}`}>
+            <Button kind="destructive" onClick={() => forgetPhone(p.id).then(load)}>Forget</Button>
+          </Row>
+        ))}
+        <Row label="Add a phone"><Button onClick={onConnect}>Connect Phone{"\u2026"}</Button></Row>
+      </Group>
+    </div>
   );
 }

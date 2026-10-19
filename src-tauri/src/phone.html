@@ -4,22 +4,27 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light dark" />
-<title>__BRAND_NAME__ on your phone</title>
+<meta name="theme-color" content="__ACCENT__" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="__BRAND_NAME__" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icon-256.png" />
+<title>__BRAND_NAME__</title>
 <style>
   /* Same language as the desktop app, adapted for a phone. */
   :root {
-    --accent: #6d5efc;
+    --accent: __ACCENT__;
     --accent-fill: color-mix(in oklab, var(--accent) 86%, black);
-    --accent-text: color-mix(in oklab, var(--accent) 78%, black);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
     --bg: #f2f2f7; --group: #ffffff; --fill: rgba(118, 118, 128, 0.12); --separator: rgba(60, 60, 67, 0.18);
-    --label: #1d1d1f; --label-2: #636366; --red: #c4001a; --recording: #ff3b30;
+    --label: #1d1d1f; --label-2: #636366; --red: #c4001a; --green: #1f7a35; --recording: #ff3b30;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --accent-text: color-mix(in oklab, var(--accent) 62%, white);
       --bg: #1e1e1e; --group: #2c2c2e; --fill: rgba(118, 118, 128, 0.24); --separator: rgba(84, 84, 88, 0.6);
-      --label: #f5f5f7; --label-2: #a1a1a6; --red: #ff6961;
+      --label: #f5f5f7; --label-2: #a1a1a6; --red: #ff6961; --green: #32d74b;
     }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -27,97 +32,182 @@
   body { margin: 0; background: var(--bg); color: var(--label); font: 17px/1.4 var(--font); min-height: 100dvh; padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px); }
   header { display: flex; align-items: center; gap: 10px; padding: 16px 0; font: 600 17px/1 var(--font); }
   header img { width: 28px; height: 28px; border-radius: 7px; }
+  h1 { font: 700 28px/1.15 var(--font); margin: 8px 0 8px; }
+  p { margin: 0; }
+  .lead { color: var(--label-2); font-size: 17px; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--fill); margin-bottom: 16px; }
   .seg button { flex: 1; height: 32px; border: 0; border-radius: 7px; background: transparent; color: var(--label); font: 500 15px var(--font); }
-  .seg button[aria-selected="true"] { background: var(--group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); font-weight: 600; }
+  .seg button[aria-selected="true"], .seg button[aria-checked="true"] { background: var(--group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); font-weight: 600; }
   .preview { position: relative; aspect-ratio: 3 / 4; border-radius: 16px; overflow: hidden; background: #000; }
   .preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .preview video.mirror { transform: scaleX(-1); }
-  .preview .chip { position: absolute; top: 12px; left: 12px; padding: 4px 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 600 13px var(--font); }
+  .chip { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 14px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 600 14px var(--font); }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: #8e8e93; }
+  .chip.live i { background: #32d74b; }
   .row { display: flex; gap: 12px; margin-top: 16px; }
-  button.big { flex: 1; height: 50px; border: 0; border-radius: 12px; font: 600 17px var(--font); background: var(--group); color: var(--label); }
+  button.big { flex: 1; min-height: 50px; border: 0; border-radius: 12px; font: 600 17px var(--font); background: var(--group); color: var(--label); }
   button.primary { background: var(--accent-fill); color: #fff; }
   button.rec { background: var(--recording); color: #fff; }
   button.danger { color: var(--red); }
+  button.plain { background: none; border: 0; color: var(--label-2); font: 15px var(--font); padding: 8px; }
   button:disabled { opacity: 0.45; }
   :focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
   .note { color: var(--label-2); font-size: 15px; margin: 12px 4px 0; }
   .error { color: var(--red); font-size: 15px; margin: 12px 4px 0; }
+  .card { background: var(--group); border-radius: 14px; padding: 16px; margin-top: 16px; }
+  .steps { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 12px; counter-reset: s; }
+  .steps li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; counter-increment: s; font-size: 16px; }
+  .steps li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--label); font-weight: 600; font-size: 15px; }
+  .steps b { font-weight: 600; }
+  .icon { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--accent-soft); margin: 24px 0 8px; }
+  .icon svg { width: 30px; height: 30px; stroke: var(--label); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .code { display: flex; gap: 8px; margin-top: 24px; }
+  .code input { width: 100%; height: 64px; border-radius: 12px; border: 0; background: var(--group); color: var(--label); text-align: center; font: 600 32px var(--font); letter-spacing: 0.3em; font-variant-numeric: tabular-nums; }
+  .hint { display: flex; gap: 12px; align-items: flex-start; }
+  .hint .icon { margin: 0; width: 40px; height: 40px; border-radius: 12px; flex: none; }
+  .hint .icon svg { width: 22px; height: 22px; }
+  .roles { margin-bottom: 12px; }
   .timer { text-align: center; font: 600 64px/1 var(--font); font-variant-numeric: tabular-nums; margin: 32px 0 8px; }
   .state { text-align: center; color: var(--label-2); font-size: 15px; }
   .meter { height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; margin: 24px 0 4px; }
   .meter i { display: block; height: 100%; width: 0; background: var(--accent-fill); transition: width 120ms linear; }
   .label { font-size: 13px; color: var(--label-2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
-  .grid .wide { grid-column: span 2; height: 64px; font-size: 20px; }
+  .grid .wide { grid-column: span 2; min-height: 64px; font-size: 20px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
 <header><img src="/brand.png" alt="" /><span id="brand"></span></header>
-<div class="seg" role="tablist">
-  <button role="tab" id="tab-camera" aria-selected="true" aria-controls="camera">Camera</button>
-  <button role="tab" id="tab-remote" aria-selected="false" aria-controls="remote">Remote</button>
-</div>
 
-<section id="camera" role="tabpanel" aria-labelledby="tab-camera">
-  <div class="preview"><video id="preview" playsinline muted autoplay class="mirror"></video><span class="chip" id="chip">Not connected</span></div>
-  <div class="row">
-    <button class="big" id="flip" disabled>Flip Camera</button>
-    <button class="big primary" id="connect">Start Camera</button>
-  </div>
-  <p class="note" id="camera-note"></p>
+<!-- Enter the 6-digit code (when the page was opened by typing the short link) -->
+<section id="enter" hidden>
+  <h1>Enter the code</h1>
+  <p class="lead">It is under the QR code in Connect Phone on your Mac.</p>
+  <form id="code-form" class="code" autocomplete="off">
+    <input id="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" aria-label="6-digit code" autofocus />
+  </form>
+  <div class="row"><button class="big primary" id="code-go" form="code-form">Connect</button></div>
 </section>
 
-<section id="remote" role="tabpanel" aria-labelledby="tab-remote" hidden>
-  <div class="timer" id="timer">0:00</div>
-  <div class="state" id="state">Not recording</div>
-  <div class="meter" aria-hidden="true"><i id="level"></i></div>
-  <div class="label">Microphone on the laptop</div>
-  <div class="grid">
-    <button class="big rec wide" id="start">Start Recording</button>
-    <button class="big" id="pause" disabled>Pause</button>
-    <button class="big" id="stop" disabled>Stop</button>
-    <button class="big danger wide" id="discard" disabled>Discard</button>
-  </div>
+<!-- Not connected and nothing to resume -->
+<section id="ended" hidden>
+  <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7"/></svg></div>
+  <h1>Scan the code again</h1>
+  <p class="lead" id="ended-text">Open Connect Phone on your Mac and scan the code with this phone's camera.</p>
 </section>
+
+<!-- Camera blocked -->
+<section id="denied" hidden>
+  <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 2l20 20M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12M9.5 4H15l2 3h3a2 2 0 0 1 2 2v7.5"/><circle cx="12" cy="13" r="3"/></svg></div>
+  <h1>Allow the camera</h1>
+  <p class="lead">Your Mac shows what this camera sees. Nothing is uploaded.</p>
+  <div class="card">
+    <ol class="steps" id="denied-steps">
+      <li><span>Tap <b>aA</b> in the address bar.</span></li>
+      <li><span>Tap <b>Website Settings</b>.</span></li>
+      <li><span>Set <b>Camera</b> to <b>Allow</b>, then come back here.</span></li>
+    </ol>
+  </div>
+  <div class="row"><button class="big primary" id="retry">Try Again</button></div>
+</section>
+
+<!-- Connected: camera and remote -->
+<main id="app" hidden>
+  <div class="label" id="role-label">Use this phone as</div>
+  <div class="seg roles" role="radiogroup" aria-labelledby="role-label">
+    <button role="radio" data-role="camera" aria-checked="true">Face Cam</button>
+    <button role="radio" data-role="angle" aria-checked="false">Second Angle</button>
+    <button role="radio" data-role="remote" aria-checked="false">Remote</button>
+  </div>
+  <div class="seg" role="tablist" id="tabs">
+    <button role="tab" id="tab-camera" aria-selected="true" aria-controls="camera">Camera</button>
+    <button role="tab" id="tab-remote" aria-selected="false" aria-controls="remote">Remote</button>
+  </div>
+  <section id="camera" role="tabpanel" aria-labelledby="tab-camera">
+    <div class="preview"><video id="preview" playsinline muted autoplay class="mirror"></video><span class="chip" id="chip"><i></i><span id="chip-text">Connecting to your Mac</span></span></div>
+    <div class="row"><button class="big" id="flip">Flip Camera</button></div>
+    <p class="note" id="camera-note"></p>
+    <div class="card hint" id="a2hs" hidden>
+      <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></div>
+      <div>
+        <p><b>Keep it on your Home Screen</b></p>
+        <p class="note" style="margin: 4px 0 0">Tap Share, then Add to Home Screen. Open it from there next time to connect in one tap.</p>
+        <button class="plain" id="a2hs-close" style="padding-left: 0">Not Now</button>
+      </div>
+    </div>
+  </section>
+  <section id="remote" role="tabpanel" aria-labelledby="tab-remote" hidden>
+    <div class="timer" id="timer">0:00</div>
+    <div class="state" id="state">Not recording</div>
+    <div class="meter" aria-hidden="true"><i id="level"></i></div>
+    <div class="label">Microphone on your Mac</div>
+    <div class="grid">
+      <button class="big rec wide" id="start">Start Recording</button>
+      <button class="big" id="pause" disabled>Pause</button>
+      <button class="big" id="stop" disabled>Stop</button>
+      <button class="big danger wide" id="discard" disabled>Discard</button>
+    </div>
+  </section>
+</main>
 <p class="error" id="error" role="alert" hidden></p>
 
 <script>
   const BRAND = __BRAND__;
   const $ = (id) => document.getElementById(id);
-  document.documentElement.style.setProperty("--accent", BRAND.accent);
   $("brand").textContent = BRAND.name;
-  const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
   const ua = navigator.userAgent;
+  const ios = /iPhone|iPad/.test(ua);
   const device = /iPad/.test(ua) ? "iPad" : /iPhone/.test(ua) ? "iPhone" : /Android/.test(ua) ? "Android phone" : "Phone";
-  const fail = (msg) => { $("error").textContent = msg; $("error").hidden = !msg; };
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
+  const fail = (msg) => { $("error").textContent = msg || ""; $("error").hidden = !msg; };
+  const show = (id) => { for (const s of ["enter", "ended", "denied", "app"]) $(s).hidden = s !== id; };
   const api = async (path, body) => {
     const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (r.status === 204) return null;
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || "The app did not answer. Is it still open?");
+    if (!r.ok) { const e = new Error(j.error || "Your Mac did not answer. Is the app still open?"); e.kind = j.kind; throw e; }
     return j;
   };
 
-  // Tabs
-  const show = (which) => {
-    for (const t of ["camera", "remote"]) { $(t).hidden = t !== which; $("tab-" + t).setAttribute("aria-selected", String(t === which)); }
+  // ---------- Getting in: QR token, remembered phone, or the 6-digit code ----------
+  let session = null, role = "camera", epoch = 0;
+  const oneTime = new URLSearchParams(location.hash.slice(1)).get("t");
+  // The one-time token leaves the address bar at once, so a saved bookmark never carries it.
+  if (oneTime) history.replaceState(null, "", "/phone");
+
+  async function hello(body) {
+    const r = await api("/api/phone/hello", { ...body, device, device_token: store.get("device-token") });
+    if (r.device_token) store.set("device-token", r.device_token);
+    session = r.session; role = r.role; epoch = r.epoch || 0;
+    return r;
+  }
+  async function begin() {
+    fail("");
+    try {
+      if (oneTime && !session) await hello({ token: oneTime });
+      else if (store.get("device-token")) await hello({});
+      else { show("enter"); $("code").focus(); return; }
+      await startCamera();
+    } catch (e) {
+      if (e.kind === "forgotten") store.set("device-token", null);
+      if (!store.get("device-token") || e.kind === "forgotten") { $("ended-text").textContent = e.message; show("ended"); }
+      else { show("ended"); setTimeout(begin, 4000); }
+    }
+  }
+  $("code-form").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api("/api/phone/code", { code: $("code").value });
+      await hello({ token: r.token });
+      await startCamera();
+    } catch (x) { fail(x.message); }
   };
-  $("tab-camera").onclick = () => show("camera");
-  $("tab-remote").onclick = () => show("remote");
+  $("code").oninput = () => { const d = $("code").value.replace(/\D/g, "").slice(0, 6); $("code").value = d.length > 3 ? d.slice(0, 3) + " " + d.slice(3) : d; };
 
-  let role = "camera";
-  api("/api/phone/hello", { token, device }).then((r) => {
-    role = r.role;
-    $("camera-note").textContent = role === "angle"
-      ? "Recorded as a second angle, for hands, a whiteboard or a product. Point the back camera at it."
-      : "Shown in the camera bubble and recorded as its own track.";
-    if (role === "angle") facing = "environment";
-  }).catch((e) => fail(e.message));
-
-  // Camera: battery-friendly 720p at 30 fps, straight to the laptop over the local network.
-  let facing = "user", stream = null, pc = null;
+  // ---------- Camera: asked for straight away; 720p at 30 fps to save battery ----------
+  let facing = "user", stream = null, pc = null, wake = null;
   const constraints = () => ({ audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } });
   async function camera() {
     stream?.getTracks().forEach((t) => t.stop());
@@ -126,35 +216,68 @@
     $("preview").classList.toggle("mirror", facing === "user");
     return stream.getVideoTracks()[0];
   }
-  const settle = (pc) => new Promise((done) => {
-    if (pc.iceGatheringState === "complete") return done();
-    pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && done());
+  const paintRole = () => document.querySelectorAll("[data-role]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.role === role)));
+  async function startCamera() {
+    paintRole();
+    status(role === "remote" ? "Remote only" : "Connecting to your Mac");
+    // Remote only: no camera, just the buttons.
+    if (role === "remote") {
+      pc?.close(); pc = null;
+      stream?.getTracks().forEach((t) => t.stop()); stream = null;
+      $("tabs").hidden = true; tab("remote");
+      show("app"); keepAwake();
+      return;
+    }
+    $("tabs").hidden = false;
+    if (role === "angle") facing = "environment";
+    $("camera-note").textContent = role === "angle"
+      ? "Recorded as a second angle. Point it at your hands, a whiteboard or a product."
+      : "Shown in the camera bubble on your Mac.";
+    try { await camera(); }
+    catch (e) { show("denied"); return; }
+    show("app");
+    keepAwake();
+    connect();
+  }
+  $("retry").onclick = startCamera;
+
+  // ---------- Connection: video goes straight to the Mac on this Wi-Fi ----------
+  const status = (text, live) => { $("chip-text").textContent = text; $("chip").classList.toggle("live", !!live); };
+  const settle = (p) => new Promise((done) => {
+    if (p.iceGatheringState === "complete") return done();
+    p.addEventListener("icegatheringstatechange", () => p.iceGatheringState === "complete" && done());
     setTimeout(done, 2500);
   });
-  $("connect").onclick = async () => {
-    fail("");
+  let connecting = false, retry = 0;
+  async function connect() {
+    if (connecting || !session) return;
+    connecting = true;
+    status(retry ? "Reconnecting" : "Connecting to your Mac");
     try {
-      if (!window.isSecureContext) throw new Error("The camera needs a secure page. Open the link from the QR code again.");
-      $("connect").disabled = true; $("chip").textContent = "Connecting...";
-      const track = await camera();
-      pc = new RTCPeerConnection({ iceServers: [] });
-      pc.addTrack(track, stream);
-      pc.onconnectionstatechange = () => {
-        const s = pc.connectionState;
-        $("chip").textContent = s === "connected" ? "Live on " + BRAND.name : s === "failed" ? "Connection lost" : "Connecting...";
-        if (s === "failed") $("connect").disabled = false;
+      pc?.close();
+      const p = new RTCPeerConnection({ iceServers: [] });
+      pc = p;
+      stream.getTracks().forEach((t) => p.addTrack(t, stream));
+      p.onconnectionstatechange = () => {
+        if (p !== pc) return;
+        if (p.connectionState === "connected") { retry = 0; status("Live on " + BRAND.name, true); offerHome(); }
+        if (["failed", "disconnected"].includes(p.connectionState)) setTimeout(() => { if (p === pc && p.connectionState !== "connected") again(); }, 2500);
       };
-      await pc.setLocalDescription(await pc.createOffer());
-      await settle(pc);
-      await api("/api/phone/offer", { token, sdp: pc.localDescription.sdp });
-      for (let i = 0; i < 120 && pc; i++) {
-        const a = await api("/api/phone/answer?token=" + encodeURIComponent(token));
-        if (a && a.sdp) { await pc.setRemoteDescription({ type: "answer", sdp: a.sdp }); break; }
-        await new Promise((r) => setTimeout(r, 500));
+      await p.setLocalDescription(await p.createOffer());
+      await settle(p);
+      await api("/api/phone/offer", { token: session, sdp: p.localDescription.sdp });
+      for (let i = 0; i < 60 && p === pc; i++) {
+        const a = await api("/api/phone/answer?token=" + encodeURIComponent(session));
+        if (a && a.sdp) { await p.setRemoteDescription({ type: "answer", sdp: a.sdp }); break; }
+        await new Promise((r) => setTimeout(r, 400));
       }
-      $("flip").disabled = false;
-    } catch (e) { fail(e.message || String(e)); $("connect").disabled = false; $("chip").textContent = "Not connected"; }
-  };
+    } catch (e) {
+      if (e.kind === "ended" || e.kind === "forgotten") { session = null; connecting = false; return begin(); }
+      setTimeout(again, 2000);
+    } finally { connecting = false; }
+  }
+  const again = () => { retry++; connect(); };
+  addEventListener("online", again);
   // Flipping swaps the track in place; the connection stays up.
   $("flip").onclick = async () => {
     facing = facing === "user" ? "environment" : "user";
@@ -165,27 +288,59 @@
     } catch (e) { fail(e.message); }
   };
 
-  // Remote
+  // Keep the screen on while connected.
+  async function keepAwake() { try { wake = await navigator.wakeLock?.request("screen"); } catch {} }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && session) { keepAwake(); if (pc?.connectionState !== "connected") again(); } });
+
+  // Home Screen hint (Safari on iPhone and iPad, once).
+  function offerHome() {
+    if (ios && !standalone && !store.get("a2hs-seen")) $("a2hs").hidden = false;
+  }
+  $("a2hs-close").onclick = () => { $("a2hs").hidden = true; store.set("a2hs-seen", "1"); };
+
+  // The phone picks its own job; the Mac swaps jobs if another phone had this one.
+  document.querySelectorAll("[data-role]").forEach((b) => b.onclick = async () => {
+    if (!session || b.dataset.role === role) return;
+    try {
+      await api("/api/phone/role", { token: session, role: b.dataset.role });
+      const s = await api("/api/phone/status?token=" + encodeURIComponent(session));
+      epoch = s.epoch || 0; role = s.role;
+      if (role !== "remote") tab("camera");
+      startCamera();
+    } catch (e) { fail(e.message); }
+  });
+
+  // ---------- Tabs and remote ----------
+  const tab = (which) => { for (const t of ["camera", "remote"]) { $(t).hidden = t !== which; $("tab-" + t).setAttribute("aria-selected", String(t === which)); } };
+  $("tab-camera").onclick = () => tab("camera");
+  $("tab-remote").onclick = () => tab("remote");
   const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
   let st = { recording: false, paused: false };
-  const press = (action) => api("/api/phone/remote", { token, action }).catch((e) => fail(e.message));
+  const press = (action) => api("/api/phone/remote", { token: session, action }).catch((e) => fail(e.message));
   $("start").onclick = () => press("start");
   $("pause").onclick = () => press(st.paused ? "resume" : "pause");
   $("stop").onclick = () => press("stop");
   $("discard").onclick = () => { if (confirm("Discard this recording?")) press("discard"); };
   async function poll() {
-    try {
-      st = await api("/api/phone/status?token=" + encodeURIComponent(token));
-      $("timer").textContent = mmss(st.elapsed || 0);
-      $("state").textContent = !st.recording ? "Not recording" : st.paused ? "Paused" : "Recording";
-      $("level").style.width = Math.round((st.level || 0) * 100) + "%";
-      $("start").disabled = st.recording;
-      $("pause").disabled = $("stop").disabled = $("discard").disabled = !st.recording;
-      $("pause").textContent = st.paused ? "Resume" : "Pause";
-      fail("");
-    } catch (e) { fail(e.message); }
-    setTimeout(poll, 500);
+    if (session) {
+      try {
+        st = await api("/api/phone/status?token=" + encodeURIComponent(session));
+        $("timer").textContent = mmss(st.elapsed || 0);
+        $("state").textContent = !st.recording ? "Not recording" : st.paused ? "Paused" : "Recording";
+        $("level").style.width = Math.round((st.level || 0) * 100) + "%";
+        $("start").disabled = st.recording;
+        $("pause").disabled = $("stop").disabled = $("discard").disabled = !st.recording;
+        $("pause").textContent = st.paused ? "Resume" : "Pause";
+        // The Mac changed this phone's job: reconnect for the new one.
+        if ((st.epoch || 0) !== epoch) { epoch = st.epoch || 0; role = st.role; startCamera(); }
+        fail("");
+      } catch (e) {
+        if (e.kind === "ended" || e.kind === "forgotten") { session = null; pc?.close(); begin(); }
+      }
+    }
+    setTimeout(poll, 700);
   }
+  begin();
   poll();
 </script>
 </body>

@@ -151,12 +151,20 @@ export function Row({ label, detail, children, block }: { label?: ReactNode; det
   );
 }
 
-export function SidebarItem({ icon, label, current, count, onClick }: { icon: LucideIcon; label: string; current: boolean; count?: number; onClick: () => void }) {
+export function SidebarItem({ icon, label, current, count, dot, onClick }: {
+  icon: LucideIcon; label: string; current: boolean; count?: number; dot?: boolean; onClick: () => void;
+}) {
   return (
     <button type="button" className="side-item" aria-current={current ? "page" : undefined} onClick={onClick}>
       <Icon as={icon} />{label}{count !== undefined && <span className="count">{count}</span>}
+      {dot !== undefined && <StatusDot on={dot} />}
     </button>
   );
+}
+
+/** Green when connected, grey when not; the label says it for VoiceOver. */
+export function StatusDot({ on }: { on: boolean }) {
+  return <span className={`status-dot ${on ? "on" : ""}`} role="img" aria-label={on ? "Connected" : "Not connected"} />;
 }
 
 /** Copyable link field. */

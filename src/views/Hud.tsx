@@ -47,7 +47,7 @@ export default function Hud() {
   const phoneScreen = loadPrefs()?.phone ?? null;
   useEffect(() => receivePhone("angle", () => {}), []);
   useEffect(() => {
-    const t = window.setInterval(() => { pairState().then((p) => setPhoneName(p.paired && p.connected ? p.device || "Phone" : null)).catch(() => {}); }, 1000);
+    const t = window.setInterval(() => { pairState().then((p) => setPhoneName(p.connected ? p.device || "Phone" : null)).catch(() => {}); }, 1000);
     return () => clearInterval(t);
   }, []);
   const level = useMicLevel(st.recording && !st.paused);
@@ -57,7 +57,7 @@ export default function Hud() {
   const phoneLabel = phoneName ?? phoneScreen?.name ?? null;
   useEffect(() => {
     if (mode === "setup") api.hudLayout(phoneLabel ? "setup-phone" : "setup");
-    if (mode === "recording") api.hudLayout(phoneName ? "recording-phone" : "recording");
+    if (mode === "recording") api.hudLayout("recording-phone");
   }, [mode, phoneLabel, phoneName]);
 
   const countdown = async (opts: StartOptions) => {
@@ -139,9 +139,10 @@ export default function Hud() {
       <div className="hud" data-tauri-drag-region role="toolbar" aria-label="Recording controls">
         <span className={`dot ${st.paused ? "paused" : ""}`} aria-hidden />
         <span className="time" data-tauri-drag-region aria-label={`Recorded ${mmss(st.elapsed)}`}>{mmss(st.elapsed)}</span>
-        {phoneName && <span className="phone-chip" title={`Phone connected: ${phoneName}`}><i />Phone connected: {phoneName}</span>}
         <span className="spacer" data-tauri-drag-region />
-        <IconButton icon={Smartphone} label="Connect Phone" onClick={connectPhone} />
+        {phoneName
+          ? <span className="phone-chip" title={`Phone connected: ${phoneName}`}><i />Phone connected: {phoneName}</span>
+          : <button type="button" className="phone-btn" onClick={connectPhone}><Smartphone size={15} strokeWidth={1.5} aria-hidden />Use your phone</button>}
         {st.paused
           ? <IconButton icon={Play} label="Resume" disabled={busy} onClick={() => act(api.resume)} />
           : <IconButton icon={Pause} label="Pause" disabled={busy || !st.recording} onClick={() => act(api.pause)} />}
@@ -164,11 +165,13 @@ export default function Hud() {
         <IconButton icon={ChevronDown} small label="Choose microphone" disabled={!devs?.mics.length} onClick={micMenu} />
       </span>
       <IconButton icon={camera ? Video : VideoOff} label={camera ? "Camera on" : "Camera off"} pressed={camera} onClick={toggleCamera} />
-      <IconButton icon={Smartphone} label="Connect Phone" pressed={!!(phoneName || phoneScreen)} onClick={connectPhone} />
-      {(phoneName || phoneScreen) && (
-        <span className="phone-chip" title={phoneName ? `Phone connected: ${phoneName}` : `Phone screen: ${phoneScreen?.name}`}>
-          <i />{phoneName ? `Phone connected: ${phoneName}` : phoneScreen?.name}
-        </span>
+      <span className="divider" />
+      {phoneName || phoneScreen ? (
+        <button type="button" className="phone-chip" onClick={connectPhone} title={phoneName ? `Phone connected: ${phoneName}` : `Phone screen: ${phoneScreen?.name}`}>
+          <i />{phoneName ? `Phone connected: ${phoneName}` : `Phone screen: ${phoneScreen?.name}`}
+        </button>
+      ) : (
+        <button type="button" className="phone-btn" onClick={connectPhone}><Smartphone size={15} strokeWidth={1.5} aria-hidden />Use your phone</button>
       )}
       <span className="spacer" data-tauri-drag-region />
       <button type="button" className="rec-btn" disabled={!screen} onClick={record}><i aria-hidden />Record</button>

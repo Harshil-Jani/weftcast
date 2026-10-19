@@ -144,6 +144,81 @@ pub fn record_args(serial: &str, out: &Path) -> Vec<String> {
     ]
 }
 
+// ---------- Wi-Fi (Android 11+ wireless debugging) ----------
+
+/// A phone address from the Wireless debugging screen: an IPv4 address and a port.
+pub fn wifi_addr(addr: &str) -> anyhow::Result<String> {
+    let a = addr.trim();
+    let (ip, port) = a.rsplit_once(':').ok_or_else(|| {
+        anyhow::anyhow!("Enter the address and port shown on the phone, like 192.168.1.20:37099.")
+    })?;
+    let ok_ip = ip.parse::<std::net::Ipv4Addr>().is_ok();
+    let ok_port = port.parse::<u16>().is_ok_and(|p| p > 0);
+    anyhow::ensure!(
+        ok_ip && ok_port,
+        "Enter the address and port shown on the phone, like 192.168.1.20:37099."
+    );
+    Ok(a.to_string())
+}
+
+/// `adb pair <addr> <code>`: the code and port from "Pair device with pairing code".
+pub fn pair_args(addr: &str, code: &str) -> anyhow::Result<Vec<String>> {
+    let addr = wifi_addr(addr)?;
+    let code: String = code.chars().filter(char::is_ascii_digit).collect();
+    anyhow::ensure!(
+        code.len() == 6,
+        "Enter the 6-digit pairing code shown on the phone."
+    );
+    Ok(vec!["pair".into(), addr, code])
+}
+
+/// `adb connect <addr>`: the address and port at the top of the Wireless debugging screen.
+pub fn connect_args(addr: &str) -> anyhow::Result<Vec<String>> {
+    Ok(vec!["connect".into(), wifi_addr(addr)?])
+}
+
+/// adb prints success on stdout and many failures on stdout too, with exit code 0.
+pub fn wifi_result(out: &str) -> anyhow::Result<()> {
+    let o = out.to_lowercase();
+    if o.contains("successfully paired")
+        || o.contains("connected to") && !o.contains("failed") && !o.contains("cannot")
+    {
+        return Ok(());
+    }
+    if o.contains("already connected") {
+        return Ok(());
+    }
+    anyhow::bail!(if o.contains("refused")
+        || o.contains("no route")
+        || o.contains("timed out")
+        || o.contains("cannot connect")
+    {
+        "The phone did not answer. Check it is on the same Wi-Fi and that Wireless debugging is still on."
+    } else if o.contains("wrong password") || o.contains("failed") {
+        "Pairing did not work. Check the code and port, which change each time the phone shows them."
+    } else {
+        "The phone did not answer. Try again."
+    })
+}
+
+/// Runs one adb Wi-Fi step (pair or connect).
+pub async fn wifi(args: Vec<String>) -> anyhow::Result<()> {
+    let adb =
+        adb_path().ok_or_else(|| anyhow::anyhow!("Get Android Tools first, then try again."))?;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tokio::process::Command::new(adb).args(&args).output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("The phone did not answer. Try again."))??;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    wifi_result(&text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +248,39 @@ mod tests {
         assert!(
             a.contains(&"--no-window".to_string())
                 && a.contains(&"--record=/tmp/p.mp4".to_string())
+        );
+    }
+
+    #[test]
+    fn wifi_pair_and_connect_commands() {
+        assert_eq!(
+            pair_args(" 192.168.1.20:37099 ", "123 456").unwrap(),
+            vec!["pair", "192.168.1.20:37099", "123456"]
+        );
+        assert_eq!(
+            connect_args("192.168.1.20:41235").unwrap(),
+            vec!["connect", "192.168.1.20:41235"]
+        );
+        assert!(
+            pair_args("192.168.1.20", "123456").is_err(),
+            "needs the port"
+        );
+        assert!(
+            pair_args("phone.local:1234", "123456").is_err(),
+            "an IPv4 address, as the phone shows"
+        );
+        assert!(pair_args("192.168.1.20:0", "123456").is_err());
+        assert!(
+            pair_args("192.168.1.20:37099", "12345").is_err(),
+            "six digits"
+        );
+        assert!(connect_args("192.168.1.20:99999").is_err());
+        assert!(wifi_result("Successfully paired to 192.168.1.20:37099 [guid=adb-X]").is_ok());
+        assert!(wifi_result("connected to 192.168.1.20:41235").is_ok());
+        assert!(wifi_result("already connected to 192.168.1.20:41235").is_ok());
+        assert!(wifi_result("Failed: Wrong password or connection was dropped.").is_err());
+        assert!(
+            wifi_result("failed to connect to '192.168.1.20:41235': Connection refused").is_err()
         );
     }
 }
