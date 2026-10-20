@@ -1,4 +1,4 @@
-# Recorder
+# Weftcast
 
 Record your screen and camera, get a link to share, and let Claude do the boring parts: titles, summaries, chapters, cutting out the ums and long pauses, and answering viewers' questions about the video. Everything runs on your computer. Your videos never go to a server, transcripts are made locally with Whisper, and the AI uses your own Claude Code login or API key.
 
@@ -34,7 +34,7 @@ Download the `.dmg`, drag the app to Applications and open it. Everything it nee
 
 <!-- brand:xattr -->
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Recorder.app"
+xattr -dr com.apple.quarantine "/Applications/Weftcast.app"
 ```
 <!-- /brand:xattr -->
 
@@ -84,10 +84,10 @@ The app ships a command line tool that is also an MCP server. Agents can list vi
 <!-- brand:mcp -->
 ```bash
 cd src-tauri && cargo build --release -p cli
-claude mcp add recorder -- "$PWD/target/release/cli" mcp
+claude mcp add weftcast -- "$PWD/target/release/cli" mcp
 ```
 
-Then ask Claude Code things like "list my Recorder videos" or "cut the first 10 seconds of my latest recording".
+Then ask Claude Code things like "list my Weftcast videos" or "cut the first 10 seconds of my latest recording".
 The same tool works without an agent: `cli list`, `cli transcript ID`, `cli plan ID "remove the intro"`, `cli apply ID plan.json --preview`.
 <!-- /brand:mcp -->
 

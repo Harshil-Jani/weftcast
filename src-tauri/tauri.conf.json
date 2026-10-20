@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Recorder",
+  "productName": "Weftcast",
   "version": "0.1.0",
-  "identifier": "dev.recorder.app",
+  "identifier": "com.weftcast.app",
   "build": {
     "beforeDevCommand": "npm run vite:dev",
     "devUrl": "http://localhost:1420",
@@ -18,7 +18,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Recorder",
+        "title": "Weftcast",
         "url": "index.html",
         "width": 1180,
         "height": 760,
@@ -40,7 +40,7 @@
       },
       {
         "label": "hud",
-        "title": "Recorder controls",
+        "title": "Weftcast controls",
         "url": "index.html#/hud",
         "width": 440,
         "height": 60,
@@ -54,7 +54,7 @@
       },
       {
         "label": "bubble",
-        "title": "Recorder camera",
+        "title": "Weftcast camera",
         "url": "index.html#/bubble",
         "width": 220,
         "height": 220,
