@@ -293,7 +293,9 @@ pub fn run() {
             )?;
             let menu = Menu::with_items(app, &[&start, &open, &quit])?;
             TrayIconBuilder::new()
-                .icon(app.default_window_icon().cloned().expect("app icon"))
+                // Monochrome template image so macOS tints it like its own menu bar icons.
+                .icon(tauri::image::Image::from_bytes(include_bytes!("../../assets/brand/tray@2x.png"))?)
+                .icon_as_template(true)
                 .tooltip(&BRAND.name)
                 .menu(&menu)
                 .build(app)?;

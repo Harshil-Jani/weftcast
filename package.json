@@ -14,7 +14,8 @@
     "tauri": "npm run brand && tauri",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "node scripts/check-sentences.mjs"
+    "test": "node scripts/check-sentences.mjs",
+    "icon": "node scripts/icon.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
