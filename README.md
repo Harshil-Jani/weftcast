@@ -1,27 +1,133 @@
-# Weftcast
+<p align="center"><img src="docs/media/banner.png" alt="Weftcast: the open-source Loom for Mac" width="100%"></p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-6d5efc.svg)](LICENSE)
-![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-black?logo=apple)
-![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri)
-![Whisper local](https://img.shields.io/badge/transcripts-local%20Whisper-green)
-![MCP server](https://img.shields.io/badge/MCP-server%20included-orange)
+<p align="center">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6d5efc.svg" alt="MIT license"></a>
+<img src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-black?logo=apple" alt="macOS">
+<img src="https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-24C8DB?logo=tauri" alt="Tauri and Rust">
+<img src="https://img.shields.io/badge/transcripts-local%20Whisper-2ea44f" alt="Local Whisper">
+<img src="https://img.shields.io/badge/MCP-server%20included-orange" alt="MCP server">
+<a href="https://github.com/Harshil-Jani/weftcast/releases/latest"><img src="https://img.shields.io/github/v/release/Harshil-Jani/weftcast?color=6d5efc" alt="Latest release"></a>
+</p>
 
-**The open-source, local-first Loom alternative for Mac, with Claude built in.**
+<h3 align="center">Record your screen. Get a link. Let Claude do the editing.<br>Your videos never leave your Mac.</h3>
 
-Record your screen and camera, get a link to share, and let Claude do the boring parts: titles, summaries, chapters, cutting out the ums and long pauses, and answering viewers' questions about the video. Everything runs on your computer. Your videos never go to a server, transcripts are made locally with Whisper, and the AI uses your own Claude Code login or API key.
+<p align="center">
+<a href="https://github.com/Harshil-Jani/weftcast/releases/latest"><b>Download for Mac</b></a> ·
+<a href="#see-it-work">See it work</a> ·
+<a href="#weftcast-vs-loom-vs-obs-vs-cap">Compare</a> ·
+<a href="#how-share-links-work">How share links work</a>
+</p>
 
-<!-- GIF placeholder: docs/demo.gif (record, stop, share link, ask the video) -->
+<p align="center"><a href="docs/media/pitch.mp4"><img src="docs/media/pitch-poster.jpg" alt="Watch the one-minute pitch, recorded with Weftcast" width="80%"></a><br>
+<sub>The one-minute pitch above was recorded, cleaned up and titled in Weftcast. Click it to play with sound.</sub></p>
 
-## Why Weftcast
+## The idea
 
-Loom is great until you hit the 5-minute cap, the per-seat bill, or the question of where your videos live. OBS is free and powerful, but it is a broadcast studio: no share link, no transcript, no editing. Weftcast sits between them.
+A loom has two sets of threads. The **warp** is stretched tight on the frame and never moves. The **weft** is the thread you pass through it, row after row, and it is the part that makes the cloth yours.
 
-- **Your videos stay on your Mac.** No upload, no cloud library. Share links stream straight from your machine.
-- **No limits, no seats, no subscription.** Record as long and as often as you want. MIT licensed.
-- **AI that edits, not just summarizes.** Type "cut the part about pricing" or "make my voice louder", review the plan, apply, undo.
-- **Agent-native.** The bundled CLI is an MCP server, so Claude Code (or any MCP agent) can list, read and edit your recordings.
-- **Shorts from long videos.** Vertical 9:16 clips with word-highlighted captions, picked and scored by Claude.
-- **Your phone is a second camera, screen or remote.** Up to four phones over Wi-Fi, no app to install.
+Screen recorders today are all warp: someone else's frame, someone else's server, someone else's limits on how long you can talk. Weftcast is the weft. It keeps the thing you made on your own machine, in plain MP4 files in a folder you can open, and brings the AI to your video instead of sending your video to the AI.
+
+Four rules the app is built on:
+
+1. **Local first.** Recording, transcription (whisper.cpp), editing and the watch page all run on your Mac. Only transcript text goes to Claude, and only when you press an AI button.
+2. **Preview before anything changes.** Every AI edit shows up as a readable plan first. You apply it, and you can undo it.
+3. **Fast path first.** Shortcut, talk, stop, link. Everything else waits in an inspector you can ignore.
+4. **Your Claude, not ours.** The AI runs on your own Claude Code login or API key. Weftcast has no account, no server and no subscription.
+
+## See it work
+
+Every clip below is a real screen capture of the app, run on the pitch video above. Nothing is mocked; slow AI steps are sped up.
+
+### Record
+
+A floating pill picks the screen, mic and camera. **Option+Shift+R** starts and stops from any app. The camera is a round bubble you can drag and resize.
+
+<img src="docs/media/record.gif" alt="Recording with the camera bubble" width="100%">
+
+### Transcribe on your Mac
+
+whisper.cpp runs on your Mac with Metal acceleration, with word timings, captions in the player and SRT/VTT export. Nothing is uploaded.
+
+<img src="docs/media/transcribe.gif" alt="Local transcription" width="100%">
+
+### Title, summary and chapters, written by Claude
+
+The speech model heard "lume". Claude knew it was Loom.
+
+<img src="docs/media/chapters.gif" alt="Claude writes the title, summary and chapters" width="100%">
+
+### Remove the ums and long pauses
+
+Preview every cut, then apply. Here: 9 pauses, 1:03 down to 0:56. The original stays on disk so you can restore it.
+
+<img src="docs/media/remove-pauses.gif" alt="Removing pauses" width="100%">
+
+### Edit by typing
+
+*"Cut the part about Loom pricing and make my voice louder."* Claude shows a plan with the exact cut, the gain and the new length, and explains the trade-off. Apply, or Discard. Undo is one click.
+
+<img src="docs/media/edit-by-prompt.gif" alt="Editing the video with a prompt" width="100%">
+
+### Make it shorter
+
+Pick 30 seconds, a minute or any length. Claude keeps the sentences that carry the point and saves the result as a new video next to the original.
+
+<img src="docs/media/make-shorter.gif" alt="Make it shorter" width="100%">
+
+### Ask the video
+
+Questions are answered from the transcript, with timestamps that jump the player. When the transcript does not say something, the answer says so.
+
+<img src="docs/media/ask-the-video.gif" alt="Ask the video" width="100%">
+
+### Translate captions
+
+Line by line, with the original timings, plus a language picker in the player and on the watch page.
+
+<img src="docs/media/translate-captions.gif" alt="Hindi captions" width="100%">
+
+### Fix a quiet mic
+
+Auto level brings your voice to -16 LUFS. This recording went from -42.9 LUFS to -16.
+
+<img src="docs/media/voice-level.gif" alt="Voice auto level" width="100%">
+
+### Shorts from a long video
+
+Claude picks moments that stand on their own, with a hook title and a score for each. You re-roll, nudge and render 1080x1920 clips with word-highlighted captions.
+
+<img src="docs/media/shorts.gif" alt="Shorts suggestions" width="100%">
+
+### Share a link
+
+Turn on **Public link** in the Share sheet and you get an `https://...trycloudflare.com` link that opens on any browser or phone. The watch page below was opened through a real public link of this video, which was turned off again after the screenshot. [How that works, and its limits](#how-share-links-work).
+
+<table><tr>
+<td width="70%"><img src="docs/media/watch-page.png" alt="Watch page on desktop"></td>
+<td width="30%"><img src="docs/media/watch-phone.png" alt="Watch page on a phone"></td>
+</tr></table>
+
+## Screenshots
+
+<table>
+<tr><td><img src="docs/media/library.png" alt="Library"><br><sub>Library</sub></td><td><img src="docs/media/chapters.png" alt="Title, summary and chapters"><br><sub>Claude's title, summary and chapters</sub></td></tr>
+<tr><td><img src="docs/media/edit-by-prompt.png" alt="Edit plan"><br><sub>An edit plan, before anything changes</sub></td><td><img src="docs/media/remove-pauses.png" alt="Pause cuts"><br><sub>Every cut listed before you apply</sub></td></tr>
+<tr><td><img src="docs/media/make-shorter.png" alt="Make it shorter"><br><sub>Make it shorter: 0:56 to 0:28</sub></td><td><img src="docs/media/ask-the-video.png" alt="Ask the video"><br><sub>Ask the video</sub></td></tr>
+<tr><td><img src="docs/media/hindi-captions.png" alt="Translated captions"><br><sub>Hindi captions, same timings</sub></td><td><img src="docs/media/voice-level.png" alt="Voice level"><br><sub>Voice level with a loudness readout</sub></td></tr>
+<tr><td><img src="docs/media/shorts.png" alt="Shorts"><br><sub>Shorts, scored and titled by Claude</sub></td><td><img src="docs/media/settings.png" alt="Settings"><br><sub>Settings: your Claude Code login or API key</sub></td></tr>
+</table>
+
+## How share links work
+
+This is the part people ask about first, so here it is plainly.
+
+- **Every video has a watch page**, served by a small web server inside the app.
+- **Public link off** (the default): the link is `http://127.0.0.1:...`, which only opens on your own Mac. Good for checking the page before you send it.
+- **Public link on**: Weftcast starts a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) with the bundled `cloudflared` and gives you an `https://<random-words>.trycloudflare.com/v/<id>` link. Anyone with that link can watch on any browser or phone. No Cloudflare account, no sign-up, no port forwarding.
+- **Nothing is uploaded or stored anywhere.** The video streams from your Mac through the tunnel while someone watches.
+- **The link works while Weftcast is running.** Quit the app or turn the link off and it stops. Each video has its own unguessable id, so the link reaches that video and nothing else in your library.
+- **Viewer questions** are off by default on public links. Turn them on per video and they are answered with your Claude.
+- **Need a link that stays up when your Mac sleeps?** Export the MP4 (with captions burned in if you like) and put it wherever you host files. A permanent, self-hosted link is on the roadmap.
 
 ## Weftcast vs Loom vs OBS vs Cap
 
@@ -33,7 +139,7 @@ Prices and limits checked October 2026 from each product's public pages and revi
 | Open source | Yes, MIT | No | Yes, GPL | Yes, AGPL |
 | Where videos live | Your Mac | Loom's cloud | Your computer | Cap's cloud or your own S3 |
 | Free recording limit | None | 25 videos, 5 min each | None | 5 min shareable links |
-| Share link | Yes, served from your Mac | Yes, cloud | No | Yes, cloud |
+| Share link | Yes, a public HTTPS link served from your Mac while the app runs | Yes, cloud | No | Yes, cloud |
 | Camera bubble | Yes | Yes | Manual scene setup | Yes |
 | Transcripts and captions | Local Whisper, SRT/VTT, burned-in MP4 | Cloud | Plugins only | Cloud AI captions |
 | Translated captions | Yes | Not listed | No | Not listed |
@@ -53,11 +159,14 @@ Prices and limits checked October 2026 from each product's public pages and revi
 ### Honest limits
 
 - macOS only for now (Apple Silicon and Intel).
-- Share links work while the app is running, because the video is served from your Mac.
+- Share links work while the app is running, because the video is served from your Mac (see [How share links work](#how-share-links-work)).
 - AI features need your own Claude Code login or Anthropic API key. Everything else works without one.
 - Builds are not yet signed with an Apple Developer ID, so the first open needs a right-click > Open (see Install).
 
-## What it does
+## Everything it does
+
+<details><summary>The full feature list, including phones as cameras, remotes and screens</summary>
+
 
 - **Record** a display with your voice, plus a round camera bubble (small, medium or large, drag it anywhere). A floating pill picks the screen, microphone and camera; a large countdown, then pause, resume, stop or discard from the pill, the menu bar icon or **Option+Shift+R**.
 - **Library and player** with rename, delete, trim, captions, chapters and a clickable transcript.
@@ -78,6 +187,8 @@ Prices and limits checked October 2026 from each product's public pages and revi
   - **Prompt edits**: "show my phone on the right from 0:20 to 1:10" (`show_phone`) and "cut to the second angle while I sketch" (`switch_angle`).
   - **How pairing works**: the code is a one-time token. The page is served through the app's temporary public link, so the phone gets a valid HTTPS certificate and shows no warning (phones only allow the camera on a secure page). Only the connection setup goes that way; the video goes straight from the phone to the Mac on your Wi-Fi. Offline, the page is served on your local network with a certificate this Mac makes for itself, and the phone asks you to trust it once.
 - **Share**: every video has a watch page. One click turns it into a public link through a free Cloudflare quick tunnel. The link works while the app is running. Viewer questions are off unless you turn them on for that video.
+
+</details>
 
 ## Install
 

@@ -15,7 +15,7 @@ for (const key of ["name", "slug", "identifier", "tagline", "accent", "repo"]) {
 const tauriConf = {
   $schema: "https://schema.tauri.app/config/2",
   productName: brand.name,
-  version: "0.1.0",
+  version: "0.1.1",
   identifier: brand.identifier,
   build: {
     beforeDevCommand: "npm run vite:dev",
@@ -77,7 +77,8 @@ if (pkg.name !== brand.slug) {
 
 const readmePath = join(root, "README.md");
 const readme = readFileSync(readmePath, "utf8").split("\n");
-readme[0] = `# ${brand.name}`;
+// The first line is the title, unless the README opens with a banner image instead.
+if (readme[0].startsWith("# ")) readme[0] = `# ${brand.name}`;
 let readmeText = readme.join("\n");
 const mcp = [
   "<!-- brand:mcp -->",
