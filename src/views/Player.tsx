@@ -420,7 +420,7 @@ function SharePanel({ detail, pub, setPub, run, report, busy }: {
   return (
     <>
       <Group>
-        <Row label="Public link" detail={pub ? "Anyone with the link can watch." : "Off. Only this Mac can open the link."}>
+        <Row label="Public link" detail={pub ? "Anyone with the link can watch while this app is running. Nothing is uploaded." : "Turn on to get an https link anyone can open. Streams from this Mac, nothing is uploaded."}>
           <Toggle label="Public link" checked={!!pub} disabled={busy} onChange={(on) => run("share", on ? "Opening a public link" : "Stopping", async () => {
             if (on) { const u = await api.shareStart(); setPub(u); await writeText(`${u}/v/${v.share_id}`); } else { await api.shareStop(); setPub(null); }
           }, on ? "Public link copied." : undefined)} />
@@ -429,7 +429,7 @@ function SharePanel({ detail, pub, setPub, run, report, busy }: {
           <Toggle label="Viewers can ask questions" checked={v.public_questions} disabled={busy} onChange={(on) => run("share", "Saving", () => api.setPublicQuestions(v.id, on))} />
         </Row>
       </Group>
-      {link ? <CopyRow label="Public link" value={link} /> : <CopyRow label="This Mac only" value={local} onCopy={() => writeText(local)} />}
+      {link ? <CopyRow label="Public link" value={link} /> : <CopyRow label="Preview on this Mac (not for sending)" value={local} onCopy={() => writeText(local)} />}
       <TaskStatus {...report("share")} />
     </>
   );
