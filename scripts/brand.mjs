@@ -15,7 +15,7 @@ for (const key of ["name", "slug", "identifier", "tagline", "accent", "repo"]) {
 const tauriConf = {
   $schema: "https://schema.tauri.app/config/2",
   productName: brand.name,
-  version: "0.1.1",
+  version: "0.1.2",
   identifier: brand.identifier,
   build: {
     beforeDevCommand: "npm run vite:dev",
