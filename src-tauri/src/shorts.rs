@@ -520,7 +520,7 @@ pub async fn render(
                 "-i",
                 &src.to_string_lossy(),
                 "-filter_complex",
-                &format!("[0:v]{vf}[v];[0:a]{af}[a]"),
+                &format!("[0:v]{vf}[v];[0:a]{},{af}[a]", media::AV_SYNC),
                 "-map",
                 "[v]",
                 "-map",

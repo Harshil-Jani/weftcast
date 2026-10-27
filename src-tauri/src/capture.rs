@@ -230,6 +230,9 @@ fn input_args(o: &StartOptions) -> Vec<String> {
         "30".into(),
         "-pixel_format".into(),
         "nv12".into(),
+        // Room for mic buffers while the encoder is busy, so fewer of them are dropped.
+        "-thread_queue_size".into(),
+        "1024".into(),
         "-i".into(),
         format!("{}:{}", o.screen, audio),
     ]
@@ -249,6 +252,8 @@ async fn spawn_segment(s: &mut Session) -> Result<()> {
             "10M",
             "-realtime",
             "1",
+            "-af",
+            media::AV_SYNC,
             "-c:a",
             "aac",
             "-b:a",

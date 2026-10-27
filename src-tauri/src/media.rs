@@ -157,6 +157,12 @@ pub async fn extract_wav(video: &Path, out: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Lays the audio samples out on their timestamps. A busy Mac can drop small chunks of mic audio
+/// while the timestamps keep going; any re-encode then packs the samples back to back and the
+/// voice drifts ahead of the picture (measured: 8.4 s missing over a 64 s recording, lips 0.3 s off
+/// after cuts). Stretching a little and filling real gaps with silence keeps every edit in sync.
+pub const AV_SYNC: &str = "aresample=async=1000:first_pts=0";
+
 const ENCODE: &[&str] = &[
     "-c:v",
     "h264_videotoolbox",
@@ -180,6 +186,8 @@ pub async fn trim(input: &Path, out: &Path, start: f64, end: f64) -> Result<()> 
         &s,
         "-to",
         &e,
+        "-af",
+        AV_SYNC,
     ];
     args.extend_from_slice(ENCODE);
     let o = out.to_string_lossy();
@@ -232,11 +240,11 @@ pub fn timeline_filter(segs: &[Segment], voice: Option<&str>) -> String {
         let (s, e) = (r.start, r.end);
         if (r.speed - 1.0).abs() < 1e-6 {
             g += &format!(
-                "[0:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS[a{i}];"
+                "[0:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS[v{i}];[0:a]{AV_SYNC},atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS[a{i}];"
             );
         } else {
             g += &format!(
-                "[0:v]trim=start={s:.3}:end={e:.3},setpts=(PTS-STARTPTS)/{f}[v{i}];[0:a]atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS,{t}[a{i}];",
+                "[0:v]trim=start={s:.3}:end={e:.3},setpts=(PTS-STARTPTS)/{f}[v{i}];[0:a]{AV_SYNC},atrim=start={s:.3}:end={e:.3},asetpts=PTS-STARTPTS,{t}[a{i}];",
                 f = r.speed,
                 t = atempo(r.speed)
             );
@@ -304,6 +312,7 @@ pub async fn audio_only(
     }
     let i = input.to_string_lossy();
     let o = out.to_string_lossy();
+    let synced = format!("{AV_SYNC},{af}");
     args.extend([
         "-i",
         &i,
@@ -314,7 +323,7 @@ pub async fn audio_only(
         "-c:v",
         "copy",
         "-af",
-        af,
+        &synced,
         "-c:a",
         "aac",
         "-b:a",
@@ -434,7 +443,9 @@ mod tests {
             None,
         );
         assert!(g.contains("[0:v]trim=start=0.000:end=1.500,setpts=PTS-STARTPTS[v0]"));
-        assert!(g.contains("[0:a]atrim=start=3.000:end=4.250,asetpts=PTS-STARTPTS[a1]"));
+        assert!(g.contains(&format!(
+            "[0:a]{AV_SYNC},atrim=start=3.000:end=4.250,asetpts=PTS-STARTPTS[a1]"
+        )));
         assert!(g.ends_with("[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"));
     }
 
