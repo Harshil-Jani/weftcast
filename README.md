@@ -18,7 +18,7 @@
 <a href="#how-share-links-work">How share links work</a>
 </p>
 
-<p align="center"><a href="https://cdn.jsdelivr.net/gh/Harshil-Jani/weftcast@main/docs/media/pitch.mp4"><img src="docs/media/pitch-poster.jpg" alt="Watch the 56-second pitch, recorded with Weftcast" width="80%"></a><br>
+<p align="center"><a href="https://cdn.jsdelivr.net/gh/Harshil-Jani/weftcast@6213994663f8dd3aad19d3cbe3d88dc5caca759a/docs/media/pitch.mp4"><img src="docs/media/pitch-poster.jpg" alt="Watch the 56-second pitch, recorded with Weftcast" width="80%"></a><br>
 <sub>The 56-second pitch above was recorded, cleaned up and titled in Weftcast. Click it to play with sound.</sub></p>
 
 ## The idea
