@@ -50,7 +50,10 @@ export default function Hud() {
     const t = window.setInterval(() => { pairState().then((p) => setPhoneName(p.connected ? p.device || "Phone" : null)).catch(() => {}); }, 1000);
     return () => clearInterval(t);
   }, []);
-  const level = useMicLevel(st.recording && !st.paused);
+  // WebKit lets one page of the app capture at a time: a mic meter here mutes the bubble's camera.
+  // ponytail: so the remote's meter only runs with a phone connected and the Mac camera off (it reads 0 otherwise);
+  // feed it from the recording's own audio if the meter matters with the camera on.
+  const level = useMicLevel(st.recording && !st.paused && !!phoneName && !camera);
   useEffect(() => { postStatus({ ...st, level: level.current }); }, [st, level]);
   const connectPhone = async () => { await api.showMain(); await emit("connect-phone"); };
   // The pill widens to fit the phone label.
