@@ -1,8 +1,61 @@
 # Weftcast
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-6d5efc.svg)](LICENSE)
+![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-black?logo=apple)
+![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri)
+![Whisper local](https://img.shields.io/badge/transcripts-local%20Whisper-green)
+![MCP server](https://img.shields.io/badge/MCP-server%20included-orange)
+
+**The open-source, local-first Loom alternative for Mac, with Claude built in.**
+
 Record your screen and camera, get a link to share, and let Claude do the boring parts: titles, summaries, chapters, cutting out the ums and long pauses, and answering viewers' questions about the video. Everything runs on your computer. Your videos never go to a server, transcripts are made locally with Whisper, and the AI uses your own Claude Code login or API key.
 
 <!-- GIF placeholder: docs/demo.gif (record, stop, share link, ask the video) -->
+
+## Why Weftcast
+
+Loom is great until you hit the 5-minute cap, the per-seat bill, or the question of where your videos live. OBS is free and powerful, but it is a broadcast studio: no share link, no transcript, no editing. Weftcast sits between them.
+
+- **Your videos stay on your Mac.** No upload, no cloud library. Share links stream straight from your machine.
+- **No limits, no seats, no subscription.** Record as long and as often as you want. MIT licensed.
+- **AI that edits, not just summarizes.** Type "cut the part about pricing" or "make my voice louder", review the plan, apply, undo.
+- **Agent-native.** The bundled CLI is an MCP server, so Claude Code (or any MCP agent) can list, read and edit your recordings.
+- **Shorts from long videos.** Vertical 9:16 clips with word-highlighted captions, picked and scored by Claude.
+- **Your phone is a second camera, screen or remote.** Up to four phones over Wi-Fi, no app to install.
+
+## Weftcast vs Loom vs OBS vs Cap
+
+Prices and limits checked October 2026 from each product's public pages and reviews; they change, so check before you rely on them. "Not listed" means we could not find it in their public material, not that it is missing.
+
+| | **Weftcast** | **Loom** | **OBS Studio** | **Cap** |
+|---|---|---|---|---|
+| Price | Free (MIT) | Free tier; Business about $18 and Business + AI about $24 per user/month | Free (GPL) | Free for personal use; Pro from about $8 per user/month |
+| Open source | Yes, MIT | No | Yes, GPL | Yes, AGPL |
+| Where videos live | Your Mac | Loom's cloud | Your computer | Cap's cloud or your own S3 |
+| Free recording limit | None | 25 videos, 5 min each | None | 5 min shareable links |
+| Share link | Yes, served from your Mac | Yes, cloud | No | Yes, cloud |
+| Camera bubble | Yes | Yes | Manual scene setup | Yes |
+| Transcripts and captions | Local Whisper, SRT/VTT, burned-in MP4 | Cloud | Plugins only | Cloud AI captions |
+| Translated captions | Yes | Not listed | No | Not listed |
+| AI titles, summary, chapters | Yes (your Claude) | Paid AI plan | No | Pro plan |
+| Remove ums and silences | Yes, preview every cut | Paid AI plan | No | Not listed |
+| Edit with a prompt | Yes, reviewable plan with undo | Edit by transcript | No | Not listed |
+| Make it shorter (30s, 60s, any length) | Yes, saved as a new video | No | No | Not listed |
+| Viewers ask the video | Yes, answers jump to timestamps | No | No | Not listed |
+| Vertical shorts with captions | Yes | No | No | Not listed |
+| Phone as camera, second angle, remote or screen | Yes, up to 4 phones | No | Via plugins | No |
+| MCP server for AI agents | Yes | No | No | No |
+| Live streaming | No | No | Yes | No |
+| Platforms | macOS | Mac, Windows, web, mobile | Mac, Windows, Linux | Mac, Windows |
+
+**Pick Loom** if your team lives in a shared cloud library with comments and admin controls. **Pick OBS** for live streaming and complex scenes. **Pick Cap** if you want an open-source, Loom-style cloud on Windows too. **Pick Weftcast** if you want unlimited recording that never leaves your Mac and an AI that actually edits the video for you.
+
+### Honest limits
+
+- macOS only for now (Apple Silicon and Intel).
+- Share links work while the app is running, because the video is served from your Mac.
+- AI features need your own Claude Code login or Anthropic API key. Everything else works without one.
+- Builds are not yet signed with an Apple Developer ID, so the first open needs a right-click > Open (see Install).
 
 ## What it does
 
